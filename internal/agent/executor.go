@@ -4,17 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
-type ActionResult struct {
-	ActionType string         `json:"actionType"`
-	Success    bool           `json:"success"`
-	Message    string         `json:"message,omitempty"`
-	Details    map[string]any `json:"details,omitempty"`
-}
-
-func executeAction(ctx context.Context, action PlanAction) ActionResult {
+func executeAction(ctx context.Context, cfg Config, action PlanAction) ActionResult {
 	switch action.Type {
 	case "agent.register", "inspect", "noop":
 		return ActionResult{
@@ -26,6 +20,12 @@ func executeAction(ctx context.Context, action PlanAction) ActionResult {
 		return k3sPreflight(ctx, action)
 	case "hami.preflight":
 		return hamiPreflight(ctx, action)
+	case "k3s.install-server":
+		return runOrPlan(ctx, cfg, action, buildK3sInstallServerCommand(action.Payload))
+	case "k3s.join-agent":
+		return runOrPlan(ctx, cfg, action, buildK3sJoinAgentCommand(action.Payload))
+	case "hami.install":
+		return runOrPlan(ctx, cfg, action, buildHamiInstallCommand(action.Payload))
 	default:
 		return ActionResult{
 			ActionType: action.Type,
@@ -79,6 +79,236 @@ func hamiPreflight(ctx context.Context, action PlanAction) ActionResult {
 	}
 }
 
+func runOrPlan(ctx context.Context, cfg Config, action PlanAction, command []string) ActionResult {
+	if len(command) == 0 {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Message:    "Unable to build command.",
+		}
+	}
+
+	planned := ActionResult{
+		ActionType: action.Type,
+		Success:    true,
+		Planned:    true,
+		DryRun:     true,
+		Message:    "Install command prepared.",
+		Command:    command,
+		Details: map[string]any{
+			"command": command,
+		},
+	}
+
+	if cfg.DryRun || !cfg.AllowInstall {
+		return planned
+	}
+	if runtime.GOOS != "linux" {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			DryRun:     false,
+			Message:    "Installation actions are only supported on Linux hosts.",
+			Command:    command,
+		}
+	}
+
+	output, err := runShellCommand(ctx, command)
+	if err != nil {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			DryRun:     false,
+			Message:    strings.TrimSpace(output) + "\n" + err.Error(),
+			Command:    command,
+			Details: map[string]any{
+				"output": output,
+			},
+		}
+	}
+
+	return ActionResult{
+		ActionType: action.Type,
+		Success:    true,
+		Planned:    true,
+		DryRun:     false,
+		Message:    "Install command executed.",
+		Command:    command,
+		Details: map[string]any{
+			"output": output,
+		},
+	}
+}
+
+func runShellCommand(ctx context.Context, command []string) (string, error) {
+	if len(command) == 0 {
+		return "", fmt.Errorf("empty command")
+	}
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func buildK3sInstallServerCommand(payload map[string]any) []string {
+	config := normalizeActionConfig(payload)
+	flags := make([]string, 0, 8)
+	if nodeName := config["nodeName"]; nodeName != "" {
+		flags = append(flags, "--node-name", shellQuote(nodeName))
+	}
+	if dataDir := config["dataDir"]; dataDir != "" {
+		flags = append(flags, "--data-dir", shellQuote(dataDir))
+	}
+	if strings.EqualFold(config["clusterInit"], "true") {
+		flags = append(flags, "--cluster-init")
+	}
+	if advertiseAddress := config["advertiseAddress"]; advertiseAddress != "" {
+		flags = append(flags, "--advertise-address", shellQuote(advertiseAddress))
+	}
+	if nodeIP := config["nodeIP"]; nodeIP != "" {
+		flags = append(flags, "--node-ip", shellQuote(nodeIP))
+	}
+	if disables := stringSliceFromPayload(payload, "disable", "disables"); len(disables) > 0 {
+		for _, item := range disables {
+			flags = append(flags, "--disable", shellQuote(item))
+		}
+	}
+	if extras := stringSliceFromPayload(payload, "extraArgs", "args"); len(extras) > 0 {
+		flags = append(flags, extras...)
+	}
+
+	script := fmt.Sprintf(
+		"curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC=%s K3S_TOKEN=%s sh -",
+		shellQuote(strings.TrimSpace(strings.Join(append([]string{"server"}, flags...), " "))),
+		shellQuote(firstNonEmpty(config["token"], config["k3sToken"], "<k3s-token>")),
+	)
+	return []string{"sh", "-c", script}
+}
+
+func buildK3sJoinAgentCommand(payload map[string]any) []string {
+	config := normalizeActionConfig(payload)
+	flags := make([]string, 0, 6)
+	if nodeName := config["nodeName"]; nodeName != "" {
+		flags = append(flags, "--node-name", shellQuote(nodeName))
+	}
+	if nodeIP := config["nodeIP"]; nodeIP != "" {
+		flags = append(flags, "--node-ip", shellQuote(nodeIP))
+	}
+	if labels := stringSliceFromPayload(payload, "labels"); len(labels) > 0 {
+		for _, label := range labels {
+			flags = append(flags, "--node-label", shellQuote(label))
+		}
+	}
+	if taints := stringSliceFromPayload(payload, "taints"); len(taints) > 0 {
+		for _, taint := range taints {
+			flags = append(flags, "--node-taint", shellQuote(taint))
+		}
+	}
+	if extras := stringSliceFromPayload(payload, "extraArgs", "args"); len(extras) > 0 {
+		flags = append(flags, extras...)
+	}
+
+	serverURL := firstNonEmpty(config["serverUrl"], config["url"], "<compute-server-url>")
+	token := firstNonEmpty(config["token"], config["k3sToken"], "<k3s-token>")
+	script := fmt.Sprintf(
+		"curl -sfL https://get.k3s.io | K3S_URL=%s K3S_TOKEN=%s sh - %s",
+		shellQuote(serverURL),
+		shellQuote(token),
+		strings.TrimSpace(strings.Join(flags, " ")),
+	)
+	return []string{"sh", "-c", script}
+}
+
+func buildHamiInstallCommand(payload map[string]any) []string {
+	config := normalizeActionConfig(payload)
+	release := firstNonEmpty(config["release"], config["version"], "v2.6.0")
+	host := firstNonEmpty(config["serverUrl"], "<compute-server-url>")
+	schedulerName := firstNonEmpty(config["schedulerName"], "hami-scheduler")
+	resourceGpu := firstNonEmpty(config["resourceGpu"], "nvidia.com/gpu")
+	resourceGpuMem := firstNonEmpty(config["resourceGpuMem"], "nvidia.com/gpumem")
+	resourceGpuCores := firstNonEmpty(config["resourceGpuCores"], "nvidia.com/gpucores")
+	resourceGpuMemPercentage := firstNonEmpty(config["resourceGpuMemPercentage"], "nvidia.com/gpumem-percentage")
+	setArgs := []string{
+		fmt.Sprintf("--set scheduler.image.tag=%s", shellQuote(release)),
+		fmt.Sprintf("--set scheduler.schedulerName=%s", shellQuote(schedulerName)),
+		"--set controller.manager.env[0].name=MONKEYS_SERVER",
+		fmt.Sprintf("--set controller.manager.env[0].value=%s", shellQuote(host)),
+		"--set controller.manager.env[1].name=RESOURCE_GPU",
+		fmt.Sprintf("--set controller.manager.env[1].value=%s", shellQuote(resourceGpu)),
+		"--set controller.manager.env[2].name=RESOURCE_GPUMEM",
+		fmt.Sprintf("--set controller.manager.env[2].value=%s", shellQuote(resourceGpuMem)),
+		"--set controller.manager.env[3].name=RESOURCE_GPUCORES",
+		fmt.Sprintf("--set controller.manager.env[3].value=%s", shellQuote(resourceGpuCores)),
+		"--set controller.manager.env[4].name=RESOURCE_GPUMEM_PERCENTAGE",
+		fmt.Sprintf("--set controller.manager.env[4].value=%s", shellQuote(resourceGpuMemPercentage)),
+	}
+	command := "helm repo add hami https://project-hami.github.io/HAMi && helm repo update && helm upgrade --install hami hami/hami --namespace kube-system --create-namespace " + strings.Join(setArgs, " ")
+	return []string{"sh", "-c", command}
+}
+
+func normalizeActionConfig(payload map[string]any) map[string]string {
+	result := map[string]string{}
+	for key, value := range payload {
+		if value == nil {
+			continue
+		}
+		result[key] = strings.TrimSpace(fmt.Sprint(value))
+	}
+	return result
+}
+
+func stringSliceFromPayload(payload map[string]any, keys ...string) []string {
+	for _, key := range keys {
+		value, ok := payload[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case []string:
+			return compactStrings(typed)
+		case []any:
+			items := make([]string, 0, len(typed))
+			for _, item := range typed {
+				items = append(items, strings.TrimSpace(fmt.Sprint(item)))
+			}
+			return compactStrings(items)
+		case string:
+			return compactStrings(strings.FieldsFunc(typed, func(r rune) bool {
+				return r == ',' || r == '\n' || r == '\r'
+			}))
+		}
+	}
+	return nil
+}
+
+func compactStrings(values []string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			filtered = append(filtered, trimmed)
+		}
+	}
+	return filtered
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func commandExists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
@@ -116,6 +346,9 @@ func eventForActionResult(result ActionResult) EventRequest {
 		Payload: map[string]any{
 			"actionType": result.ActionType,
 			"success":    result.Success,
+			"planned":    result.Planned,
+			"dryRun":     result.DryRun,
+			"command":    result.Command,
 			"details":    result.Details,
 		},
 	}

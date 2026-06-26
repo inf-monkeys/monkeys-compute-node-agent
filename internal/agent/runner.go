@@ -48,7 +48,7 @@ func Once(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return executePlan(ctx, c, state.AgentToken, heartbeat.Plan)
+	return executePlan(ctx, c, cfg, state.AgentToken, heartbeat.Plan)
 }
 
 func Run(ctx context.Context, cfg Config) error {
@@ -70,7 +70,7 @@ func Run(ctx context.Context, cfg Config) error {
 	defer ticker.Stop()
 
 	for {
-		if err := heartbeatAndPlan(ctx, c, state.AgentToken, cfg.Version); err != nil {
+		if err := heartbeatAndPlan(ctx, c, cfg, state.AgentToken); err != nil {
 			log.Printf("heartbeat failed: %v", err)
 		}
 		select {
@@ -81,16 +81,16 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func heartbeatAndPlan(ctx context.Context, c *client, token string, version string) error {
-	facts := Discover(ctx, version)
-	heartbeat, err := c.heartbeat(ctx, token, heartbeatFromFacts(facts, version))
+func heartbeatAndPlan(ctx context.Context, c *client, cfg Config, token string) error {
+	facts := Discover(ctx, cfg.Version)
+	heartbeat, err := c.heartbeat(ctx, token, heartbeatFromFacts(facts, cfg.Version))
 	if err != nil {
 		return err
 	}
-	return executePlan(ctx, c, token, heartbeat.Plan)
+	return executePlan(ctx, c, cfg, token, heartbeat.Plan)
 }
 
-func executePlan(ctx context.Context, c *client, token string, plan Plan) error {
+func executePlan(ctx context.Context, c *client, cfg Config, token string, plan Plan) error {
 	if plan.ID == "" || plan.Status == "completed" {
 		return nil
 	}
@@ -111,13 +111,18 @@ func executePlan(ctx context.Context, c *client, token string, plan Plan) error 
 		return err
 	}
 	completed := make([]string, 0, len(plan.Actions))
+	planned := make([]string, 0, len(plan.Actions))
 	failed := make([]string, 0)
 	for _, action := range plan.Actions {
-		result := executeAction(ctx, action)
+		result := executeAction(ctx, cfg, action)
 		event := eventForActionResult(result)
 		event.OccurredAt = time.Now().UnixMilli()
 		if result.Success {
-			completed = append(completed, action.Type)
+			if result.Planned {
+				planned = append(planned, action.Type)
+			} else {
+				completed = append(completed, action.Type)
+			}
 		} else {
 			failed = append(failed, action.Type)
 		}
@@ -127,6 +132,7 @@ func executePlan(ctx context.Context, c *client, token string, plan Plan) error 
 	}
 	return c.complete(ctx, token, plan.ID, map[string]any{
 		"completedActions": completed,
+		"plannedActions":   planned,
 		"failedActions":    failed,
 		"completedAt":      time.Now().UnixMilli(),
 	})

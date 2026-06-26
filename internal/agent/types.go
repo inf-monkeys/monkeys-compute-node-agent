@@ -9,6 +9,8 @@ type Config struct {
 	NodeName       string
 	Version        string
 	Interval       time.Duration
+	AllowInstall   bool
+	DryRun         bool
 }
 
 type State struct {
@@ -130,4 +132,14 @@ type GPUInfo struct {
 	MemoryMiB     int    `json:"memoryMiB,omitempty"`
 	DriverVersion string `json:"driverVersion,omitempty"`
 	CUDAVersion   string `json:"cudaVersion,omitempty"`
+}
+
+type ActionResult struct {
+	ActionType string         `json:"actionType"`
+	Success    bool           `json:"success"`
+	Planned    bool           `json:"planned,omitempty"`
+	DryRun     bool           `json:"dryRun,omitempty"`
+	Message    string         `json:"message,omitempty"`
+	Command    []string       `json:"command,omitempty"`
+	Details    map[string]any `json:"details,omitempty"`
 }
