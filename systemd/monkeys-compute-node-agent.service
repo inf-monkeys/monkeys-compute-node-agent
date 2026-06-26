@@ -1,0 +1,20 @@
+[Unit]
+Description=Monkeys Compute Node Agent
+Documentation=https://github.com/inf-monkeys/monkeys-compute-node-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/monkeys-compute-node-agent/agent.env
+ExecStart=/usr/local/bin/monkeys-compute-node-agent run --server ${MONKEYS_SERVER} --state /var/lib/monkeys-compute-node-agent/agent-state.json --interval ${MONKEYS_AGENT_INTERVAL}
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/var/lib/monkeys-compute-node-agent
+StateDirectory=monkeys-compute-node-agent
+RuntimeDirectory=monkeys-compute-node-agent
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target
