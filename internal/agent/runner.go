@@ -111,33 +111,23 @@ func executePlan(ctx context.Context, c *client, token string, plan Plan) error 
 		return err
 	}
 	completed := make([]string, 0, len(plan.Actions))
+	failed := make([]string, 0)
 	for _, action := range plan.Actions {
-		switch action.Type {
-		case "agent.register", "inspect", "noop":
+		result := executeAction(ctx, action)
+		event := eventForActionResult(result)
+		event.OccurredAt = time.Now().UnixMilli()
+		if result.Success {
 			completed = append(completed, action.Type)
-			if err := c.event(ctx, token, plan.ID, EventRequest{
-				EventType:  "node.plan.action.completed",
-				Severity:   "info",
-				Message:    "Action completed: " + action.Type,
-				Payload:    map[string]any{"actionType": action.Type},
-				OccurredAt: time.Now().UnixMilli(),
-			}); err != nil {
-				return err
-			}
-		default:
-			if err := c.event(ctx, token, plan.ID, EventRequest{
-				EventType:  "node.plan.action.unsupported",
-				Severity:   "warning",
-				Message:    "Unsupported action: " + action.Type,
-				Payload:    map[string]any{"actionType": action.Type},
-				OccurredAt: time.Now().UnixMilli(),
-			}); err != nil {
-				return err
-			}
+		} else {
+			failed = append(failed, action.Type)
+		}
+		if err := c.event(ctx, token, plan.ID, event); err != nil {
+			return err
 		}
 	}
 	return c.complete(ctx, token, plan.ID, map[string]any{
 		"completedActions": completed,
+		"failedActions":    failed,
 		"completedAt":      time.Now().UnixMilli(),
 	})
 }

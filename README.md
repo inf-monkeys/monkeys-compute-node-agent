@@ -74,5 +74,7 @@ The first executable plan actions are intentionally non-destructive:
 - `agent.register`
 - `inspect`
 - `noop`
+- `k3s.preflight`
+- `hami.preflight`
 
 Unknown actions are reported back as warning events. K3s and HAMi mutation actions should be added behind explicit plan action types and tests.
