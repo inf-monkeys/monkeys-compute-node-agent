@@ -18,8 +18,16 @@ Install actions are dry-run by default. To actually execute install commands, pa
 
 ```bash
 make build
+make build-linux
 make test
 ```
+
+`make build-linux` creates:
+
+- `dist/monkeys-compute-node-agent_linux_amd64`
+- `dist/monkeys-compute-node-agent_linux_arm64`
+
+Publish those files to the release location used by the control-plane install script.
 
 ## Register
 
@@ -39,3 +47,21 @@ monkeys-compute-node-agent run \
 ```
 
 By default the state file is `agent-state.json` in the current directory. For systemd deployments, pass `--state /var/lib/monkeys-compute-node-agent/agent-state.json`.
+
+## Install Script
+
+The control plane exposes:
+
+```bash
+curl -fsSL "$MONKEYS_SERVER/api/compute/node-agent/install.sh" \
+  | sudo MONKEYS_SERVER="$MONKEYS_SERVER" MONKEYS_BOOTSTRAP_TOKEN="$MONKEYS_BOOTSTRAP_TOKEN" sh -
+```
+
+The script downloads the Linux binary, registers the server, writes `/etc/monkeys-compute-node-agent/agent.env`, installs a systemd service, and starts the agent.
+
+Useful overrides:
+
+- `MONKEYS_AGENT_DOWNLOAD_URL`: exact binary URL.
+- `MONKEYS_AGENT_RELEASE_BASE_URL`: release base URL, defaulting to GitHub Releases.
+- `MONKEYS_AGENT_VERSION`: release version, defaulting to `latest`.
+- `MONKEYS_ALLOW_INSTALL=true` and `MONKEYS_DRY_RUN=false`: allow install plans such as K3s/HAMi to execute.

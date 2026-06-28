@@ -8,6 +8,9 @@ STATE_DIR="${MONKEYS_AGENT_STATE_DIR:-/var/lib/monkeys-compute-node-agent}"
 STATE_FILE="${STATE_DIR}/agent-state.json"
 INTERVAL="${MONKEYS_AGENT_INTERVAL:-30s}"
 VERSION="${MONKEYS_AGENT_VERSION:-latest}"
+RELEASE_BASE_URL="${MONKEYS_AGENT_RELEASE_BASE_URL:-https://github.com/inf-monkeys/monkeys-compute-node-agent/releases}"
+ALLOW_INSTALL="${MONKEYS_ALLOW_INSTALL:-false}"
+DRY_RUN="${MONKEYS_DRY_RUN:-true}"
 
 fail() {
   echo "error: $*" >&2
@@ -67,9 +70,9 @@ elif [ -n "${MONKEYS_AGENT_DOWNLOAD_URL:-}" ]; then
 else
   agent_arch="$(detect_arch)"
   if [ "$VERSION" = "latest" ]; then
-    url="https://github.com/inf-monkeys/monkeys-compute-node-agent/releases/latest/download/${SERVICE_NAME}_linux_${agent_arch}"
+    url="${RELEASE_BASE_URL}/latest/download/${SERVICE_NAME}_linux_${agent_arch}"
   else
-    url="https://github.com/inf-monkeys/monkeys-compute-node-agent/releases/download/${VERSION}/${SERVICE_NAME}_linux_${agent_arch}"
+    url="${RELEASE_BASE_URL}/download/${VERSION}/${SERVICE_NAME}_linux_${agent_arch}"
   fi
   download "$url" "$binary_path"
 fi
@@ -83,6 +86,8 @@ env_file="$tmp_dir/agent.env"
 cat > "$env_file" <<EOF
 MONKEYS_SERVER=${MONKEYS_SERVER}
 MONKEYS_AGENT_INTERVAL=${INTERVAL}
+MONKEYS_ALLOW_INSTALL=${ALLOW_INSTALL}
+MONKEYS_DRY_RUN=${DRY_RUN}
 EOF
 as_root install -m 0600 "$env_file" "$CONFIG_DIR/agent.env"
 
