@@ -95,7 +95,7 @@ type Plan struct {
 	Actions        []PlanAction   `json:"actions"`
 	K3s            map[string]any `json:"k3s"`
 	HAMi           map[string]any `json:"hami"`
-	UpdatedAt      int64          `json:"updatedAt"`
+	UpdatedAt      UnixMillis     `json:"updatedAt"`
 }
 
 type PlanAction struct {

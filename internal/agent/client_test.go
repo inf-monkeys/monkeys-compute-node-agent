@@ -12,7 +12,7 @@ func TestClientDecodesWrappedEnvelope(t *testing.T) {
 			t.Fatalf("missing bearer token: %s", request.Header.Get("Authorization"))
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"code":0,"msg":"ok","data":{"id":"plan-1"}}`))
+		_, _ = writer.Write([]byte(`{"code":0,"msg":"ok","data":{"id":"plan-1","updatedAt":"1825000000000"}}`))
 	}))
 	defer server.Close()
 
@@ -26,5 +26,8 @@ func TestClientDecodesWrappedEnvelope(t *testing.T) {
 	}
 	if result.ID != "plan-1" {
 		t.Fatalf("unexpected plan: %+v", result)
+	}
+	if result.UpdatedAt.Int64() != 1825000000000 {
+		t.Fatalf("unexpected updatedAt: %d", result.UpdatedAt.Int64())
 	}
 }
