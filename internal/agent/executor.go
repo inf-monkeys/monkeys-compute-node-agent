@@ -61,21 +61,40 @@ func k3sPreflight(ctx context.Context, action PlanAction) ActionResult {
 
 func hamiPreflight(ctx context.Context, action PlanAction) ActionResult {
 	gpus := detectNvidiaGPUs(ctx)
+	kubernetesReady, kubernetesNodes := detectKubernetesReady(ctx)
 	details := map[string]any{
-		"hasNvidiaSMI":      commandExists("nvidia-smi"),
-		"hasKubectl":        commandExists("kubectl"),
-		"nvidiaGPUCount":    totalGPUCount(gpus),
-		"nvidiaGPUSummary":  gpus,
-		"nodeLabeled":       false,
-		"devicePluginReady": false,
+		"hasNvidiaSMI":              commandExists("nvidia-smi"),
+		"hasKubectl":                commandExists("kubectl"),
+		"hasHelm":                   commandExists("helm"),
+		"hasContainerd":             commandExists("containerd") || commandExists("ctr"),
+		"hasDocker":                 commandExists("docker"),
+		"hasNvidiaContainerRuntime": commandExists("nvidia-container-runtime"),
+		"hasNvidiaCtk":              commandExists("nvidia-ctk"),
+		"kubernetesReady":           kubernetesReady,
+		"kubernetesNodes":           kubernetesNodes,
+		"nvidiaGPUCount":            totalGPUCount(gpus),
+		"nvidiaGPUSummary":          gpus,
+		"nodeLabeled":               false,
+		"devicePluginReady":         false,
 	}
 	hami := detectHAMi(ctx)
 	for key, value := range hami {
 		details[key] = value
 	}
+	missing := missingChecks(details, "hasNvidiaSMI", "hasKubectl", "hasHelm", "kubernetesReady")
+	if totalGPUCount(gpus) <= 0 {
+		missing = append(missing, "nvidiaGPUCount")
+	}
+	if details["hasContainerd"] != true && details["hasDocker"] != true {
+		missing = append(missing, "containerRuntime")
+	}
+	if details["hasNvidiaContainerRuntime"] != true && details["hasNvidiaCtk"] != true {
+		missing = append(missing, "nvidiaContainerRuntime")
+	}
+	details["missing"] = missing
 	return ActionResult{
 		ActionType: action.Type,
-		Success:    details["hasNvidiaSMI"] == true && details["hasKubectl"] == true,
+		Success:    len(missing) == 0,
 		Message:    "HAMi preflight completed.",
 		Details:    details,
 	}
@@ -368,6 +387,37 @@ func totalGPUCount(gpus []GPUInfo) int {
 		}
 	}
 	return total
+}
+
+func missingChecks(details map[string]any, keys ...string) []string {
+	missing := make([]string, 0)
+	for _, key := range keys {
+		if details[key] != true {
+			missing = append(missing, key)
+		}
+	}
+	return missing
+}
+
+func detectKubernetesReady(ctx context.Context) (bool, string) {
+	if !commandExists("kubectl") {
+		return false, ""
+	}
+	output, err := runCommand(ctx, "kubectl", "get", "nodes", "--no-headers")
+	if err != nil {
+		return false, strings.TrimSpace(output)
+	}
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return false, ""
+	}
+	for _, line := range strings.Split(trimmed, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.Contains(fields[1], "Ready") && !strings.Contains(fields[1], "NotReady") {
+			return true, trimmed
+		}
+	}
+	return false, trimmed
 }
 
 func eventForActionResult(result ActionResult) EventRequest {

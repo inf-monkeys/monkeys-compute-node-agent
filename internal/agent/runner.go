@@ -129,6 +129,9 @@ func executePlan(ctx context.Context, c *client, cfg Config, token string, plan 
 		if err := c.event(ctx, token, plan.ID, event); err != nil {
 			return err
 		}
+		if !result.Success {
+			break
+		}
 	}
 	return c.complete(ctx, token, plan.ID, map[string]any{
 		"completedActions": completed,
