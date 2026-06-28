@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -137,13 +138,12 @@ func discoverPublicIP(ctx context.Context) string {
 	if ip := configuredIP("MONKEYS_PUBLIC_IP"); ip != "" {
 		return ip
 	}
-	if !envBool("MONKEYS_DISCOVER_PUBLIC_IP", false) {
+	if !envBool("MONKEYS_DISCOVER_PUBLIC_IP", true) {
 		return ""
 	}
 	urls := []string{
 		os.Getenv("MONKEYS_PUBLIC_IP_URL"),
-		"https://api.ipify.org",
-		"https://ifconfig.me/ip",
+		"https://ipapi.co/json/",
 	}
 	for _, url := range urls {
 		url = strings.TrimSpace(url)
@@ -238,11 +238,24 @@ func fetchPublicIP(ctx context.Context, url string) string {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return ""
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 128))
+	body, err := io.ReadAll(io.LimitReader(response.Body, 8192))
 	if err != nil {
 		return ""
 	}
+	return publicIPFromResponseBody(body)
+}
+
+func publicIPFromResponseBody(body []byte) string {
 	value := strings.TrimSpace(string(body))
+	if strings.HasPrefix(value, "{") {
+		var payload struct {
+			IP string `json:"ip"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return ""
+		}
+		value = strings.TrimSpace(payload.IP)
+	}
 	ip := net.ParseIP(value)
 	if ip == nil || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() {
 		return ""

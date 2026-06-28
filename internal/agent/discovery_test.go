@@ -26,3 +26,11 @@ func TestDiscoverPublicIPUsesExplicitEnvOnlyByDefault(t *testing.T) {
 		t.Fatalf("unexpected public IP: %q", got)
 	}
 }
+
+func TestPublicIPFromIPAPIResponseBody(t *testing.T) {
+	body := []byte(`{"ip":"198.51.100.24","city":"Singapore"}`)
+
+	if got := publicIPFromResponseBody(body); got != "198.51.100.24" {
+		t.Fatalf("unexpected public IP: %q", got)
+	}
+}

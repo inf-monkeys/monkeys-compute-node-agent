@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestExecuteActionSupportsReadOnlyPreflight(t *testing.T) {
 	cfg := Config{DryRun: true}
@@ -29,6 +32,27 @@ func TestExecuteActionPlansInstallActionsWithoutAllowFlag(t *testing.T) {
 	}
 	if result.Command[0] != "sh" {
 		t.Fatalf("unexpected command prefix: %+v", result.Command)
+	}
+}
+
+func TestExecuteActionPlansAgentUpdateWithoutAllowFlag(t *testing.T) {
+	cfg := Config{ServerURL: "http://control-plane.local", DryRun: true}
+	result := executeAction(t.Context(), cfg, PlanAction{Type: "agent.update"})
+	if !result.Success || !result.Planned || !result.DryRun {
+		t.Fatalf("expected dry-run planned success, got: %+v", result)
+	}
+	if len(result.Command) != 3 || result.Command[0] != "sh" {
+		t.Fatalf("unexpected command: %+v", result.Command)
+	}
+	command := result.Command[2]
+	for _, expected := range []string{
+		"http://control-plane.local/api/compute/node-agent/download/monkeys-compute-node-agent_linux_",
+		"install -m 0755",
+		"systemctl restart",
+	} {
+		if !strings.Contains(command, expected) {
+			t.Fatalf("expected update command to contain %q: %s", expected, command)
+		}
 	}
 }
 

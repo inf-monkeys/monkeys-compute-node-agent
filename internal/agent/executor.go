@@ -16,6 +16,8 @@ func executeAction(ctx context.Context, cfg Config, action PlanAction) ActionRes
 			Success:    true,
 			Message:    "Action completed.",
 		}
+	case "agent.update", "agent.upgrade":
+		return runOrPlan(ctx, cfg, action, buildAgentUpdateCommand(cfg, action.Payload))
 	case "k3s.preflight":
 		return k3sPreflight(ctx, action)
 	case "hami.preflight":
@@ -245,6 +247,45 @@ func buildHamiInstallCommand(payload map[string]any) []string {
 	}
 	command := "helm repo add hami https://project-hami.github.io/HAMi && helm repo update && helm upgrade --install hami hami/hami --namespace kube-system --create-namespace " + strings.Join(setArgs, " ")
 	return []string{"sh", "-c", command}
+}
+
+func buildAgentUpdateCommand(cfg Config, payload map[string]any) []string {
+	config := normalizeActionConfig(payload)
+	downloadURL := firstNonEmpty(config["downloadUrl"], config["url"])
+	if downloadURL == "" {
+		serverURL := strings.TrimRight(firstNonEmpty(config["serverUrl"], cfg.ServerURL), "/")
+		if serverURL == "" {
+			return nil
+		}
+		downloadURL = fmt.Sprintf("%s/api/compute/node-agent/download/monkeys-compute-node-agent_linux_%s", serverURL, runtime.GOARCH)
+	}
+	installPath := firstNonEmpty(config["installPath"], "/usr/local/bin/monkeys-compute-node-agent")
+	serviceName := firstNonEmpty(config["serviceName"], "monkeys-compute-node-agent")
+	checksum := firstNonEmpty(config["sha256"], config["checksum"])
+	checksumBlock := ":"
+	if checksum != "" {
+		checksumBlock = fmt.Sprintf("printf '%%s  %%s\\n' %s \"$tmp\" | sha256sum -c -", shellQuote(checksum))
+	}
+	restartScript := fmt.Sprintf("sleep 2; systemctl restart %s", shellQuote(serviceName))
+	script := fmt.Sprintf(`set -eu
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL %s -o "$tmp"
+elif command -v wget >/dev/null 2>&1; then
+  wget -q %s -O "$tmp"
+else
+  echo "curl or wget is required" >&2
+  exit 1
+fi
+chmod +x "$tmp"
+"$tmp" version
+%s
+install -m 0755 "$tmp" %s
+if command -v systemctl >/dev/null 2>&1; then
+  nohup sh -c %s >/dev/null 2>&1 &
+fi`, shellQuote(downloadURL), shellQuote(downloadURL), checksumBlock, shellQuote(installPath), shellQuote(restartScript))
+	return []string{"sh", "-c", script}
 }
 
 func normalizeActionConfig(payload map[string]any) map[string]string {
