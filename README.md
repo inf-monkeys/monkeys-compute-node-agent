@@ -29,6 +29,21 @@ make test
 
 Publish those files to the release location used by the control-plane install script.
 
+## Release
+
+GitHub Actions builds and publishes Linux binaries when a version tag is pushed:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release assets must keep these names because the control-plane install script downloads them directly:
+
+- `monkeys-compute-node-agent_linux_amd64`
+- `monkeys-compute-node-agent_linux_arm64`
+- `checksums.txt`
+
 ## Register
 
 ```bash
