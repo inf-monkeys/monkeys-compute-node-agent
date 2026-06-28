@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -15,9 +17,11 @@ import (
 
 func Discover(ctx context.Context, version string) Facts {
 	hostname, _ := os.Hostname()
-	privateIP := firstPrivateIP()
+	privateIP := discoverPrivateIP()
+	publicIP := discoverPublicIP(ctx)
 	facts := Facts{
 		Hostname:     hostname,
+		PublicIP:     publicIP,
 		PrivateIP:    privateIP,
 		OS:           detectOS(),
 		Arch:         runtime.GOARCH,
@@ -33,6 +37,12 @@ func Discover(ctx context.Context, version string) Facts {
 	}
 	if version != "" {
 		facts.Labels["monkeys.compute.agent/version"] = version
+	}
+	if privateIP != "" {
+		facts.Labels["monkeys.compute.agent/private-ip"] = privateIP
+	}
+	if publicIP != "" {
+		facts.Labels["monkeys.compute.agent/public-ip"] = publicIP
 	}
 	return facts
 }
@@ -113,11 +123,78 @@ func detectMemoryBytes() string {
 	return ""
 }
 
-func firstPrivateIP() string {
+func discoverPrivateIP() string {
+	if ip := configuredIP("MONKEYS_PRIVATE_IP"); ip != "" {
+		return ip
+	}
+	if ip := outboundIPv4(); ip != "" {
+		return ip
+	}
+	return firstInterfaceIPv4()
+}
+
+func discoverPublicIP(ctx context.Context) string {
+	if ip := configuredIP("MONKEYS_PUBLIC_IP"); ip != "" {
+		return ip
+	}
+	if !envBool("MONKEYS_DISCOVER_PUBLIC_IP", false) {
+		return ""
+	}
+	urls := []string{
+		os.Getenv("MONKEYS_PUBLIC_IP_URL"),
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+	}
+	for _, url := range urls {
+		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+		if ip := fetchPublicIP(ctx, url); ip != "" {
+			return ip
+		}
+	}
+	return ""
+}
+
+func configuredIP(key string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return ""
+	}
+	ip := net.ParseIP(value)
+	if ip == nil {
+		return ""
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.String()
+}
+
+func outboundIPv4() string {
+	conn, err := net.DialTimeout("udp", "1.1.1.1:80", 2*time.Second)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || localAddr.IP == nil {
+		return ""
+	}
+	ip := localAddr.IP.To4()
+	if ip == nil || !isUsableIPv4(ip) {
+		return ""
+	}
+	return ip.String()
+}
+
+func firstInterfaceIPv4() string {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return ""
 	}
+	var fallback string
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
@@ -132,13 +209,67 @@ func firstPrivateIP() string {
 				continue
 			}
 			ip := ipNet.IP.To4()
-			if ip == nil {
+			if ip == nil || !isUsableIPv4(ip) {
 				continue
 			}
-			return ip.String()
+			if ip.IsPrivate() {
+				return ip.String()
+			}
+			if fallback == "" {
+				fallback = ip.String()
+			}
 		}
 	}
-	return ""
+	return fallback
+}
+
+func fetchPublicIP(ctx context.Context, url string) string {
+	requestCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return ""
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 128))
+	if err != nil {
+		return ""
+	}
+	value := strings.TrimSpace(string(body))
+	ip := net.ParseIP(value)
+	if ip == nil || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() {
+		return ""
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.String()
+}
+
+func isUsableIPv4(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return !ip.IsLoopback() && !ip.IsUnspecified() && !ip.IsLinkLocalUnicast()
+}
+
+func envBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func detectNvidiaGPUs(ctx context.Context) []GPUInfo {
