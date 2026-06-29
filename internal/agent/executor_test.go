@@ -102,6 +102,15 @@ func TestResolveKubeconfigEndpointPrefersExplicitEndpoint(t *testing.T) {
 	}
 }
 
+func TestParseKubernetesVersions(t *testing.T) {
+	if version := parseKubectlServerVersion(`{"serverVersion":{"gitVersion":"v1.30.2+k3s1"}}`); version != "v1.30.2+k3s1" {
+		t.Fatalf("unexpected kubectl server version: %s", version)
+	}
+	if version := parseK3sVersion("k3s version v1.30.2+k3s1 (abcdef)\ngo version go1.22.5"); version != "v1.30.2+k3s1" {
+		t.Fatalf("unexpected k3s version: %s", version)
+	}
+}
+
 func TestExecuteActionReportsUnsupportedActions(t *testing.T) {
 	result := executeAction(t.Context(), Config{}, PlanAction{Type: "k3s.install"})
 	if result.Success {

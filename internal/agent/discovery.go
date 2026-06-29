@@ -344,15 +344,46 @@ func detectKubernetes(ctx context.Context) map[string]any {
 	if _, err := exec.LookPath("k3s"); err == nil {
 		result["installed"] = true
 		result["distribution"] = "k3s"
+		if output, err := runCommand(ctx, "k3s", "--version"); err == nil {
+			if version := parseK3sVersion(output); version != "" {
+				result["version"] = version
+			}
+			result["distributionVersion"] = strings.TrimSpace(output)
+		}
 	}
 	if _, err := exec.LookPath("kubectl"); err == nil {
 		result["kubectl"] = true
+		if output, err := runCommand(ctx, "kubectl", "version", "-o", "json"); err == nil {
+			if version := parseKubectlServerVersion(output); version != "" {
+				result["version"] = version
+			}
+		}
 	}
 	if output, err := runCommand(ctx, "kubectl", "get", "node", "-o", "jsonpath={.items[0].metadata.name}"); err == nil && strings.TrimSpace(output) != "" {
 		result["ready"] = true
 		result["nodeName"] = strings.TrimSpace(output)
 	}
 	return result
+}
+
+func parseKubectlServerVersion(output string) string {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return ""
+	}
+	serverVersion, _ := payload["serverVersion"].(map[string]any)
+	gitVersion, _ := serverVersion["gitVersion"].(string)
+	return strings.TrimSpace(gitVersion)
+}
+
+func parseK3sVersion(output string) string {
+	fields := strings.Fields(strings.TrimSpace(output))
+	for _, field := range fields {
+		if strings.HasPrefix(field, "v") && strings.Contains(field, "+k3s") {
+			return strings.TrimSpace(field)
+		}
+	}
+	return ""
 }
 
 func detectHAMi(ctx context.Context) map[string]any {
