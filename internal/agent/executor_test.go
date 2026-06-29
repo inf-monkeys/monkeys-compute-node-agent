@@ -56,6 +56,34 @@ func TestExecuteActionPlansAgentUpdateWithoutAllowFlag(t *testing.T) {
 	}
 }
 
+func TestExecuteActionPlansRuntimeApplyWithoutAllowFlag(t *testing.T) {
+	cfg := Config{DryRun: true}
+	result := executeAction(t.Context(), cfg, PlanAction{
+		Type: "k8s.apply-runtime",
+		Payload: map[string]any{
+			"runtimeId":    "runtime-1",
+			"namespace":    "default",
+			"manifestYaml": "apiVersion: v1\nkind: Secret\nmetadata:\n  name: runtime-env\n",
+		},
+	})
+	if !result.Success || !result.Planned || !result.DryRun {
+		t.Fatalf("expected dry-run planned success, got: %+v", result)
+	}
+	if result.Details["runtimeId"] != "runtime-1" {
+		t.Fatalf("expected sanitized runtime details, got: %+v", result.Details)
+	}
+	if _, ok := result.Details["manifestYaml"]; ok {
+		t.Fatalf("manifest yaml must not be echoed in event details: %+v", result.Details)
+	}
+}
+
+func TestExecuteActionRejectsRuntimeApplyWithoutManifest(t *testing.T) {
+	result := executeAction(t.Context(), Config{DryRun: true}, PlanAction{Type: "k8s.apply-runtime"})
+	if result.Success {
+		t.Fatalf("expected missing manifest to fail: %+v", result)
+	}
+}
+
 func TestRewriteKubeconfigServer(t *testing.T) {
 	input := "apiVersion: v1\nclusters:\n- cluster:\n    certificate-authority-data: abc\n    server: https://127.0.0.1:6443\n  name: default\n"
 	output := rewriteKubeconfigServer(input, "https://10.0.0.10:6443")

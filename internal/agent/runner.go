@@ -129,6 +129,15 @@ func executePlan(ctx context.Context, c *client, cfg Config, token string, plan 
 			}
 		} else {
 			failed = append(failed, action.Type)
+			if action.Type == "k8s.apply-runtime" {
+				artifacts["runtimeResults"] = appendRuntimeResultArtifact(artifacts["runtimeResults"], map[string]any{
+					"runtimeId": action.Payload["runtimeId"],
+					"namespace": action.Payload["namespace"],
+					"action":    action.Type,
+					"success":   false,
+					"message":   result.Message,
+				})
+			}
 		}
 		if err := c.event(ctx, token, plan.ID, event); err != nil {
 			return err
@@ -147,4 +156,19 @@ func executePlan(ctx context.Context, c *client, cfg Config, token string, plan 
 		payload[key] = value
 	}
 	return c.complete(ctx, token, plan.ID, payload)
+}
+
+func appendRuntimeResultArtifact(current any, item map[string]any) []map[string]any {
+	results := make([]map[string]any, 0)
+	switch typed := current.(type) {
+	case []map[string]any:
+		results = append(results, typed...)
+	case []any:
+		for _, value := range typed {
+			if mapped, ok := value.(map[string]any); ok {
+				results = append(results, mapped)
+			}
+		}
+	}
+	return append(results, item)
 }

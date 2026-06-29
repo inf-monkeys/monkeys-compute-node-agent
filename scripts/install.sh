@@ -108,7 +108,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-${CONFIG_DIR}/agent.env
-ExecStart=${INSTALL_DIR}/${SERVICE_NAME} run --server \${MONKEYS_SERVER} --state ${STATE_FILE} --interval \${MONKEYS_AGENT_INTERVAL}
+ExecStart=${INSTALL_DIR}/${SERVICE_NAME} run --server \${MONKEYS_SERVER} --state ${STATE_FILE} --interval \${MONKEYS_AGENT_INTERVAL} --allow-install=\${MONKEYS_ALLOW_INSTALL} --dry-run=\${MONKEYS_DRY_RUN}
 Restart=always
 RestartSec=5
 User=root

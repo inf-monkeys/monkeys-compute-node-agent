@@ -29,12 +29,137 @@ func executeAction(ctx context.Context, cfg Config, action PlanAction) ActionRes
 		return runOrPlan(ctx, cfg, action, buildK3sJoinAgentCommand(action.Payload))
 	case "hami.install":
 		return runOrPlan(ctx, cfg, action, buildHamiInstallCommand(action.Payload))
+	case "k8s.apply-runtime":
+		return applyRuntimeManifests(ctx, cfg, action)
 	default:
 		return ActionResult{
 			ActionType: action.Type,
 			Success:    false,
 			Message:    "Unsupported action.",
 		}
+	}
+}
+
+func applyRuntimeManifests(ctx context.Context, cfg Config, action PlanAction) ActionResult {
+	manifestYaml := strings.TrimSpace(asString(action.Payload["manifestYaml"]))
+	namespace := firstNonEmpty(asString(action.Payload["namespace"]), "default")
+	runtimeID := asString(action.Payload["runtimeId"])
+	manifestCount := asString(action.Payload["manifestCount"])
+	if manifestYaml == "" {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Message:    "manifestYaml is required.",
+		}
+	}
+
+	details := map[string]any{
+		"runtimeId":     runtimeID,
+		"namespace":     namespace,
+		"manifestCount": manifestCount,
+	}
+	if cfg.DryRun || !cfg.AllowInstall {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    true,
+			Planned:    true,
+			DryRun:     true,
+			Message:    "Runtime manifest apply prepared.",
+			Details:    details,
+		}
+	}
+	if runtime.GOOS != "linux" {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			DryRun:     false,
+			Message:    "Kubernetes manifest apply is only supported on Linux hosts.",
+			Details:    details,
+		}
+	}
+
+	kubectl := resolveKubectlCommand()
+	if len(kubectl) == 0 {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			DryRun:     false,
+			Message:    "kubectl or k3s is required to apply runtime manifests.",
+			Details:    details,
+		}
+	}
+
+	tmpFile, err := os.CreateTemp("", "monkeys-runtime-*.yaml")
+	if err != nil {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			Message:    fmt.Sprintf("create temporary manifest file: %v", err),
+			Details:    details,
+		}
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmpFile.WriteString(manifestYaml + "\n"); err != nil {
+		tmpFile.Close()
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			Message:    fmt.Sprintf("write temporary manifest file: %v", err),
+			Details:    details,
+		}
+	}
+	if err := tmpFile.Close(); err != nil {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			Message:    fmt.Sprintf("close temporary manifest file: %v", err),
+			Details:    details,
+		}
+	}
+
+	command := append(append([]string{}, kubectl...), "apply", "-f", tmpPath)
+	kubeconfigPath := firstNonEmpty(asString(action.Payload["kubeconfigPath"]), "/etc/rancher/k3s/k3s.yaml")
+	env := map[string]string{}
+	if kubeconfigPath != "" {
+		env["KUBECONFIG"] = kubeconfigPath
+	}
+	output, err := runCommandWithEnv(ctx, env, command...)
+	details["command"] = append(append([]string{}, kubectl...), "apply", "-f", "<rendered-runtime-manifest>")
+	details["output"] = output
+	if err != nil {
+		return ActionResult{
+			ActionType: action.Type,
+			Success:    false,
+			Planned:    true,
+			DryRun:     false,
+			Message:    strings.TrimSpace(output) + "\n" + err.Error(),
+			Details:    details,
+		}
+	}
+	return ActionResult{
+		ActionType: action.Type,
+		Success:    true,
+		Planned:    true,
+		DryRun:     false,
+		Message:    "Runtime manifests applied.",
+		Details:    details,
+		Artifacts: map[string]any{
+			"runtimeResults": []map[string]any{
+				{
+					"runtimeId": runtimeID,
+					"namespace": namespace,
+					"action":    action.Type,
+					"success":   true,
+					"message":   "Runtime manifests applied.",
+				},
+			},
+		},
 	}
 }
 
@@ -206,6 +331,34 @@ func runShellCommand(ctx context.Context, command []string) (string, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+func runCommandWithEnv(ctx context.Context, env map[string]string, command ...string) (string, error) {
+	if len(command) == 0 {
+		return "", fmt.Errorf("empty command")
+	}
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	if len(env) > 0 {
+		cmd.Env = os.Environ()
+		for key, value := range env {
+			if strings.TrimSpace(key) == "" {
+				continue
+			}
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func resolveKubectlCommand() []string {
+	if commandExists("kubectl") {
+		return []string{"kubectl"}
+	}
+	if commandExists("k3s") {
+		return []string{"k3s", "kubectl"}
+	}
+	return nil
 }
 
 func buildK3sInstallServerCommand(payload map[string]any) []string {
