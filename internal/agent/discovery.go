@@ -33,6 +33,7 @@ func Discover(ctx context.Context, version string) Facts {
 		HAMi:         detectHAMi(ctx),
 		Labels:       map[string]string{},
 		Telemetry:    collectTelemetry(ctx),
+		RuntimeStatuses: detectRuntimeStatuses(ctx),
 	}
 	if len(facts.GPUs) > 0 {
 		facts.Labels["gpu"] = "on"
@@ -64,6 +65,7 @@ func heartbeatFromFacts(facts Facts, version string) HeartbeatRequest {
 		HAMi:         facts.HAMi,
 		Labels:       facts.Labels,
 		Telemetry:    facts.Telemetry,
+		RuntimeStatuses: facts.RuntimeStatuses,
 	}
 }
 

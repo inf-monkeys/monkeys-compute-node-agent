@@ -71,6 +71,7 @@ type HeartbeatRequest struct {
 	HAMi         map[string]any    `json:"hami,omitempty"`
 	Labels       map[string]string `json:"labels,omitempty"`
 	Telemetry    map[string]any    `json:"telemetry,omitempty"`
+	RuntimeStatuses []RuntimeStatus `json:"runtimeStatuses,omitempty"`
 	Status       string            `json:"status,omitempty"`
 	StatusReason string            `json:"statusReason,omitempty"`
 }
@@ -125,6 +126,31 @@ type Facts struct {
 	HAMi         map[string]any
 	Labels       map[string]string
 	Telemetry    map[string]any
+	RuntimeStatuses []RuntimeStatus
+}
+
+type RuntimeStatus struct {
+	RuntimeID         string           `json:"runtimeId"`
+	Namespace         string           `json:"namespace,omitempty"`
+	DeploymentName    string           `json:"deploymentName,omitempty"`
+	Status            string           `json:"status,omitempty"`
+	Reason            string           `json:"reason,omitempty"`
+	Message           string           `json:"message,omitempty"`
+	DesiredReplicas   int              `json:"desiredReplicas"`
+	ReadyReplicas     int              `json:"readyReplicas"`
+	AvailableReplicas int              `json:"availableReplicas"`
+	PodCount          int              `json:"podCount"`
+	ReadyPodCount     int              `json:"readyPodCount"`
+	Pods              []RuntimePodInfo `json:"pods,omitempty"`
+	ObservedAt        int64            `json:"observedAt"`
+}
+
+type RuntimePodInfo struct {
+	Name    string `json:"name"`
+	Phase   string `json:"phase,omitempty"`
+	Ready   bool   `json:"ready"`
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type GPUInfo struct {
