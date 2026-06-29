@@ -144,4 +144,5 @@ type ActionResult struct {
 	Message    string         `json:"message,omitempty"`
 	Command    []string       `json:"command,omitempty"`
 	Details    map[string]any `json:"details,omitempty"`
+	Artifacts  map[string]any `json:"-"`
 }

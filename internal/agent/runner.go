@@ -113,6 +113,7 @@ func executePlan(ctx context.Context, c *client, cfg Config, token string, plan 
 	completed := make([]string, 0, len(plan.Actions))
 	planned := make([]string, 0, len(plan.Actions))
 	failed := make([]string, 0)
+	artifacts := map[string]any{}
 	for _, action := range plan.Actions {
 		result := executeAction(ctx, cfg, action)
 		event := eventForActionResult(result)
@@ -122,6 +123,9 @@ func executePlan(ctx context.Context, c *client, cfg Config, token string, plan 
 				planned = append(planned, action.Type)
 			} else {
 				completed = append(completed, action.Type)
+			}
+			for key, value := range result.Artifacts {
+				artifacts[key] = value
 			}
 		} else {
 			failed = append(failed, action.Type)
@@ -133,10 +137,14 @@ func executePlan(ctx context.Context, c *client, cfg Config, token string, plan 
 			break
 		}
 	}
-	return c.complete(ctx, token, plan.ID, map[string]any{
+	payload := map[string]any{
 		"completedActions": completed,
 		"plannedActions":   planned,
 		"failedActions":    failed,
 		"completedAt":      time.Now().UnixMilli(),
-	})
+	}
+	for key, value := range artifacts {
+		payload[key] = value
+	}
+	return c.complete(ctx, token, plan.ID, payload)
 }

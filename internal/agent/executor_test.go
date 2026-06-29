@@ -56,6 +56,24 @@ func TestExecuteActionPlansAgentUpdateWithoutAllowFlag(t *testing.T) {
 	}
 }
 
+func TestRewriteKubeconfigServer(t *testing.T) {
+	input := "apiVersion: v1\nclusters:\n- cluster:\n    certificate-authority-data: abc\n    server: https://127.0.0.1:6443\n  name: default\n"
+	output := rewriteKubeconfigServer(input, "https://10.0.0.10:6443")
+	if !strings.Contains(output, "server: https://10.0.0.10:6443") {
+		t.Fatalf("expected server endpoint to be rewritten: %s", output)
+	}
+	if strings.Contains(output, "127.0.0.1") {
+		t.Fatalf("local endpoint leaked into kubeconfig: %s", output)
+	}
+}
+
+func TestResolveKubeconfigEndpointPrefersExplicitEndpoint(t *testing.T) {
+	endpoint := resolveKubeconfigEndpoint(map[string]any{"apiServerEndpoint": "10.0.0.10:6443"})
+	if endpoint != "https://10.0.0.10:6443" {
+		t.Fatalf("unexpected endpoint: %s", endpoint)
+	}
+}
+
 func TestExecuteActionReportsUnsupportedActions(t *testing.T) {
 	result := executeAction(t.Context(), Config{}, PlanAction{Type: "k3s.install"})
 	if result.Success {

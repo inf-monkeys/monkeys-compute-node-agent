@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -23,7 +24,7 @@ func executeAction(ctx context.Context, cfg Config, action PlanAction) ActionRes
 	case "hami.preflight":
 		return hamiPreflight(ctx, action)
 	case "k3s.install-server":
-		return runOrPlan(ctx, cfg, action, buildK3sInstallServerCommand(action.Payload))
+		return runK3sInstallServer(ctx, cfg, action)
 	case "k3s.join-agent":
 		return runOrPlan(ctx, cfg, action, buildK3sJoinAgentCommand(action.Payload))
 	case "hami.install":
@@ -35,6 +36,41 @@ func executeAction(ctx context.Context, cfg Config, action PlanAction) ActionRes
 			Message:    "Unsupported action.",
 		}
 	}
+}
+
+func runK3sInstallServer(ctx context.Context, cfg Config, action PlanAction) ActionResult {
+	result := runOrPlan(ctx, cfg, action, buildK3sInstallServerCommand(action.Payload))
+	if !result.Success || result.DryRun {
+		return result
+	}
+
+	kubeconfig, endpoint, err := collectManagedKubeconfig(action.Payload)
+	if err != nil {
+		result.Success = false
+		result.Message = strings.TrimSpace(result.Message + "\n" + err.Error())
+		if result.Details == nil {
+			result.Details = map[string]any{}
+		}
+		result.Details["kubeconfigCollected"] = false
+		return result
+	}
+	if result.Details == nil {
+		result.Details = map[string]any{}
+	}
+	result.Details["kubeconfigCollected"] = true
+	result.Details["apiServerEndpoint"] = endpoint
+	result.Artifacts = map[string]any{
+		"kubeconfig":        kubeconfig,
+		"apiServerEndpoint": endpoint,
+		"defaultNamespace":  firstNonEmpty(asString(action.Payload["defaultNamespace"]), "default"),
+	}
+	if namespaceScopes := stringSliceFromPayload(action.Payload, "namespaceScopes", "namespaces"); len(namespaceScopes) > 0 {
+		result.Artifacts["namespaceScopes"] = namespaceScopes
+	}
+	if clusterAlias := firstNonEmpty(asString(action.Payload["clusterAlias"]), asString(action.Payload["name"])); clusterAlias != "" {
+		result.Artifacts["clusterAlias"] = clusterAlias
+	}
+	return result
 }
 
 func k3sPreflight(ctx context.Context, action PlanAction) ActionResult {
@@ -207,6 +243,59 @@ func buildK3sInstallServerCommand(payload map[string]any) []string {
 	return []string{"sh", "-c", script}
 }
 
+func collectManagedKubeconfig(payload map[string]any) (string, string, error) {
+	path := firstNonEmpty(asString(payload["kubeconfigPath"]), "/etc/rancher/k3s/k3s.yaml")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("read k3s kubeconfig %s: %w", path, err)
+	}
+	kubeconfig := string(content)
+	endpoint := resolveKubeconfigEndpoint(payload)
+	if endpoint == "" {
+		return "", "", fmt.Errorf("unable to resolve reachable Kubernetes API endpoint; set apiServerEndpoint in the action payload")
+	}
+	return rewriteKubeconfigServer(kubeconfig, endpoint), endpoint, nil
+}
+
+func resolveKubeconfigEndpoint(payload map[string]any) string {
+	if endpoint := firstNonEmpty(asString(payload["apiServerEndpoint"]), asString(payload["serverEndpoint"])); endpoint != "" {
+		return normalizeKubeAPIServerEndpoint(endpoint)
+	}
+	host := firstNonEmpty(asString(payload["apiServerHost"]), asString(payload["advertiseAddress"]), asString(payload["nodeIP"]))
+	if host == "" {
+		facts := Discover(context.Background(), "")
+		host = firstNonEmpty(facts.PrivateIP, facts.PublicIP)
+	}
+	if host == "" {
+		return ""
+	}
+	port := firstNonEmpty(asString(payload["apiServerPort"]), "6443")
+	return normalizeKubeAPIServerEndpoint(host + ":" + port)
+}
+
+func rewriteKubeconfigServer(kubeconfig string, endpoint string) string {
+	lines := strings.Split(kubeconfig, "\n")
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "server:") {
+			prefix := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+			lines[index] = prefix + "server: " + endpoint
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeKubeAPIServerEndpoint(value string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return ""
+	}
+	if !strings.Contains(normalized, "://") {
+		normalized = "https://" + normalized
+	}
+	return strings.TrimRight(normalized, "/")
+}
+
 func buildK3sJoinAgentCommand(payload map[string]any) []string {
 	config := normalizeActionConfig(payload)
 	flags := make([]string, 0, 6)
@@ -367,6 +456,13 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func asString(value any) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
 }
 
 func commandExists(name string) bool {
