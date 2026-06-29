@@ -70,6 +70,7 @@ type HeartbeatRequest struct {
 	Kubernetes   map[string]any    `json:"kubernetes,omitempty"`
 	HAMi         map[string]any    `json:"hami,omitempty"`
 	Labels       map[string]string `json:"labels,omitempty"`
+	Telemetry    map[string]any    `json:"telemetry,omitempty"`
 	Status       string            `json:"status,omitempty"`
 	StatusReason string            `json:"statusReason,omitempty"`
 }
@@ -123,6 +124,7 @@ type Facts struct {
 	Kubernetes   map[string]any
 	HAMi         map[string]any
 	Labels       map[string]string
+	Telemetry    map[string]any
 }
 
 type GPUInfo struct {

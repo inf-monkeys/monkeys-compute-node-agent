@@ -32,6 +32,7 @@ func Discover(ctx context.Context, version string) Facts {
 		Kubernetes:   detectKubernetes(ctx),
 		HAMi:         detectHAMi(ctx),
 		Labels:       map[string]string{},
+		Telemetry:    collectTelemetry(ctx),
 	}
 	if len(facts.GPUs) > 0 {
 		facts.Labels["gpu"] = "on"
@@ -62,6 +63,7 @@ func heartbeatFromFacts(facts Facts, version string) HeartbeatRequest {
 		Kubernetes:   facts.Kubernetes,
 		HAMi:         facts.HAMi,
 		Labels:       facts.Labels,
+		Telemetry:    facts.Telemetry,
 	}
 }
 
