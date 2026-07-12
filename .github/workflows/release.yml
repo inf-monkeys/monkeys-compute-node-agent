@@ -46,14 +46,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build Linux binaries
-        run: make build-linux
-
-      - name: Generate checksums
-        shell: bash
-        run: |
-          cd dist
-          sha256sum monkeys-compute-node-agent_linux_* > checksums.txt
+      - name: Build and verify release artifacts
+        run: make verify-dist
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -62,4 +56,5 @@ jobs:
           files: |
             dist/monkeys-compute-node-agent_linux_amd64
             dist/monkeys-compute-node-agent_linux_arm64
-            dist/checksums.txt
+            dist/SHA256SUMS
+            dist/install.sh

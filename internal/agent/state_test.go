@@ -29,3 +29,25 @@ func TestSaveAndLoadState(t *testing.T) {
 		t.Fatalf("state file not written: %v", err)
 	}
 }
+
+func TestLoadOrCreateAgentInstanceIDIsStable(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "agent-state.json")
+	first, err := loadOrCreateAgentInstanceID(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := loadOrCreateAgentInstanceID(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || first != second {
+		t.Fatalf("agent instance identity is not stable: first=%q second=%q", first, second)
+	}
+	info, err := os.Stat(statePath + ".instance-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("unexpected instance identity mode: %o", info.Mode().Perm())
+	}
+}

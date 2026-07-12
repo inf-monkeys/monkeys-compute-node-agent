@@ -24,19 +24,62 @@ func executeAction(ctx context.Context, cfg Config, action PlanAction) ActionRes
 	case "hami.preflight":
 		return hamiPreflight(ctx, action)
 	case "k3s.install-server":
+		if err := validateK3sExtraArgs(action.Payload); err != nil {
+			return invalidK3sArgumentsResult(action, err)
+		}
 		return runK3sInstallServer(ctx, cfg, action)
 	case "k3s.join-agent":
+		if err := validateK3sExtraArgs(action.Payload); err != nil {
+			return invalidK3sArgumentsResult(action, err)
+		}
 		return runOrPlan(ctx, cfg, action, buildK3sJoinAgentCommand(action.Payload))
 	case "hami.install":
 		return runOrPlan(ctx, cfg, action, buildHamiInstallCommand(action.Payload))
 	case "k8s.apply-runtime":
 		return applyRuntimeManifests(ctx, cfg, action)
+	case "host.service.inspect", "host.service.start", "host.service.stop", "host.service.restart", "host.service.enable", "host.service.disable":
+		return executeHostServiceAction(ctx, cfg, action)
 	default:
 		return ActionResult{
 			ActionType: action.Type,
 			Success:    false,
 			Message:    "Unsupported action.",
 		}
+	}
+}
+
+func validateK3sExtraArgs(payload map[string]any) error {
+	extras := stringSliceFromPayload(payload, "extraArgs", "args")
+	if len(extras) > 32 {
+		return fmt.Errorf("extraArgs cannot contain more than 32 entries")
+	}
+	for index, extra := range extras {
+		if len(extra) == 0 || len(extra) > 256 || !isSafeK3sExtraArg(extra) {
+			return fmt.Errorf("extraArgs[%d] must be a 1-256 byte ASCII command argument without whitespace or shell metacharacters", index)
+		}
+	}
+	return nil
+}
+
+func isSafeK3sExtraArg(value string) bool {
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') {
+			continue
+		}
+		if strings.ContainsRune("-._/:=,@+%[]", rune(character)) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func invalidK3sArgumentsResult(action PlanAction, err error) ActionResult {
+	return ActionResult{
+		ActionType: action.Type,
+		Success:    false,
+		Message:    "Invalid K3s extraArgs: " + err.Error(),
 	}
 }
 
@@ -385,7 +428,9 @@ func buildK3sInstallServerCommand(payload map[string]any) []string {
 		}
 	}
 	if extras := stringSliceFromPayload(payload, "extraArgs", "args"); len(extras) > 0 {
-		flags = append(flags, extras...)
+		for _, extra := range extras {
+			flags = append(flags, shellQuote(extra))
+		}
 	}
 
 	script := fmt.Sprintf(
@@ -469,13 +514,15 @@ func buildK3sJoinAgentCommand(payload map[string]any) []string {
 		}
 	}
 	if extras := stringSliceFromPayload(payload, "extraArgs", "args"); len(extras) > 0 {
-		flags = append(flags, extras...)
+		for _, extra := range extras {
+			flags = append(flags, shellQuote(extra))
+		}
 	}
 
 	serverURL := firstNonEmpty(config["serverUrl"], config["url"], "<compute-server-url>")
 	token := firstNonEmpty(config["token"], config["k3sToken"], "<k3s-token>")
 	script := fmt.Sprintf(
-		"curl -sfL https://get.k3s.io | K3S_URL=%s K3S_TOKEN=%s sh - %s",
+		"curl -sfL https://get.k3s.io | K3S_URL=%s K3S_TOKEN=%s sh -s - %s",
 		shellQuote(serverURL),
 		shellQuote(token),
 		strings.TrimSpace(strings.Join(flags, " ")),
@@ -510,22 +557,42 @@ func buildHamiInstallCommand(payload map[string]any) []string {
 	return []string{"sh", "-c", command}
 }
 
-func buildAgentUpdateCommand(cfg Config, payload map[string]any) []string {
+func buildAgentUpdateCommand(_ Config, payload map[string]any) []string {
 	config := normalizeActionConfig(payload)
+	assetName := fmt.Sprintf("monkeys-compute-node-agent_linux_%s", runtime.GOARCH)
 	downloadURL := firstNonEmpty(config["downloadUrl"], config["url"])
+	checksumsURL := config["checksumsUrl"]
 	if downloadURL == "" {
-		serverURL := strings.TrimRight(firstNonEmpty(config["serverUrl"], cfg.ServerURL), "/")
-		if serverURL == "" {
-			return nil
+		releaseBaseURL := strings.TrimRight(firstNonEmpty(config["releaseBaseUrl"], "https://github.com/inf-monkeys/monkeys-compute-node-agent/releases"), "/")
+		version := firstNonEmpty(config["version"], "latest")
+		releaseURL := releaseBaseURL + "/latest/download"
+		if version != "latest" {
+			releaseURL = releaseBaseURL + "/download/" + version
 		}
-		downloadURL = fmt.Sprintf("%s/api/compute/node-agent/download/monkeys-compute-node-agent_linux_%s", serverURL, runtime.GOARCH)
+		downloadURL = releaseURL + "/" + assetName
+		if checksumsURL == "" {
+			checksumsURL = releaseURL + "/SHA256SUMS"
+		}
 	}
 	installPath := firstNonEmpty(config["installPath"], "/usr/local/bin/monkeys-compute-node-agent")
 	serviceName := firstNonEmpty(config["serviceName"], "monkeys-compute-node-agent")
 	checksum := firstNonEmpty(config["sha256"], config["checksum"])
-	checksumBlock := ":"
+	checksumBlock := ""
 	if checksum != "" {
 		checksumBlock = fmt.Sprintf("printf '%%s  %%s\\n' %s \"$tmp\" | sha256sum -c -", shellQuote(checksum))
+	} else if checksumsURL != "" {
+		checksumBlock = fmt.Sprintf(`checksums="$(mktemp)"
+trap 'rm -f "$tmp" "$checksums"' EXIT
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL %s -o "$checksums"
+else
+  wget -q %s -O "$checksums"
+fi
+expected="$(awk -v asset=%s '$2 == asset || $2 == "*" asset { print $1; exit }' "$checksums")"
+[ -n "$expected" ] || { echo "checksum for %s was not found" >&2; exit 1; }
+printf '%%s  %%s\n' "$expected" "$tmp" | sha256sum -c -`, shellQuote(checksumsURL), shellQuote(checksumsURL), shellQuote(assetName), assetName)
+	} else {
+		return nil
 	}
 	restartScript := fmt.Sprintf("sleep 2; systemctl restart %s", shellQuote(serviceName))
 	script := fmt.Sprintf(`set -eu

@@ -6,8 +6,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=MONKEYS_AGENT_MODE=host
+Environment=MONKEYS_AGENT_INTERVAL=30s
+Environment=MONKEYS_ALLOW_INSTALL=false
+Environment=MONKEYS_DRY_RUN=true
 EnvironmentFile=-/etc/monkeys-compute-node-agent/agent.env
-ExecStart=/usr/local/bin/monkeys-compute-node-agent run --server ${MONKEYS_SERVER} --state /var/lib/monkeys-compute-node-agent/agent-state.json --interval ${MONKEYS_AGENT_INTERVAL}
+ExecStart=/usr/local/bin/monkeys-compute-node-agent run --mode ${MONKEYS_AGENT_MODE} --server ${MONKEYS_SERVER} --state /var/lib/monkeys-compute-node-agent/agent-state.json --workspace /var/lib/monkeys-compute-node-agent/workspace --interval ${MONKEYS_AGENT_INTERVAL} --allow-install=${MONKEYS_ALLOW_INSTALL} --dry-run=${MONKEYS_DRY_RUN}
 Restart=always
 RestartSec=5
 User=root

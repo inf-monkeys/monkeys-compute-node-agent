@@ -54,11 +54,11 @@ type kubernetesPodList struct {
 }
 
 func detectRuntimeStatuses(ctx context.Context) []RuntimeStatus {
-	if !commandExists("kubectl") {
+	if len(resolveKubectlCommand()) == 0 {
 		return nil
 	}
 
-	deploymentsOutput, err := runCommand(ctx, "kubectl", "get", "deploy", "-A", "-l", "app.kubernetes.io/managed-by=monkeys-compute", "-o", "json")
+	deploymentsOutput, err := runKubernetesCommand(ctx, "get", "deploy", "-A", "-l", "app.kubernetes.io/managed-by=monkeys-compute", "-o", "json")
 	if err != nil || strings.TrimSpace(deploymentsOutput) == "" {
 		return nil
 	}
@@ -71,7 +71,7 @@ func detectRuntimeStatuses(ctx context.Context) []RuntimeStatus {
 	}
 
 	podsByRuntime := map[string][]RuntimePodInfo{}
-	podsOutput, err := runCommand(ctx, "kubectl", "get", "pods", "-A", "-l", "app.kubernetes.io/managed-by=monkeys-compute", "-o", "json")
+	podsOutput, err := runKubernetesCommand(ctx, "get", "pods", "-A", "-l", "app.kubernetes.io/managed-by=monkeys-compute", "-o", "json")
 	if err == nil && strings.TrimSpace(podsOutput) != "" {
 		var pods kubernetesPodList
 		if err := json.Unmarshal([]byte(podsOutput), &pods); err == nil {

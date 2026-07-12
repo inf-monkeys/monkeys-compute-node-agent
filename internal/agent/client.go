@@ -26,6 +26,17 @@ type envelopeProbe struct {
 	Data json.RawMessage `json:"data"`
 }
 
+type httpResponseError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e *httpResponseError) Error() string {
+	return fmt.Sprintf("%s %s failed: HTTP %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
+}
+
 func newClient(serverURL string) (*client, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	if baseURL == "" {
@@ -61,6 +72,28 @@ func (c *client) complete(ctx context.Context, token string, planID string, payl
 	return err
 }
 
+func (c *client) claimTasks(ctx context.Context, token string, limit int, leaseSeconds int) (ClaimTasksResult, error) {
+	return doJSON[ClaimTasksResult](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/claim", token, map[string]int{
+		"limit":        limit,
+		"leaseSeconds": leaseSeconds,
+	})
+}
+
+func (c *client) taskHeartbeat(ctx context.Context, token string, taskID string, request TaskLeaseRequest) error {
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/heartbeat", token, request)
+	return err
+}
+
+func (c *client) completeTask(ctx context.Context, token string, taskID string, request CompleteTaskRequest) error {
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/complete", token, request)
+	return err
+}
+
+func (c *client) failTask(ctx context.Context, token string, taskID string, request FailTaskRequest) error {
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/fail", token, request)
+	return err
+}
+
 func doJSON[T any](ctx context.Context, c *client, method string, path string, token string, body any) (T, error) {
 	var zero T
 	var reader io.Reader
@@ -92,7 +125,7 @@ func doJSON[T any](ctx context.Context, c *client, method string, path string, t
 		return zero, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return zero, fmt.Errorf("%s %s failed: HTTP %d: %s", method, path, resp.StatusCode, string(data))
+		return zero, &httpResponseError{Method: method, Path: path, StatusCode: resp.StatusCode, Body: string(data)}
 	}
 
 	var probe envelopeProbe

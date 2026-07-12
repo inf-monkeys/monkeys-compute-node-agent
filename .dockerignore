@@ -1,0 +1,10 @@
+.git
+.github
+bin
+dist
+Dockerfile*
+README.md
+scripts
+systemd
+tools
+*_test.go

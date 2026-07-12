@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -21,18 +23,18 @@ func Discover(ctx context.Context, version string) Facts {
 	privateIP := discoverPrivateIP()
 	publicIP := discoverPublicIP(ctx)
 	facts := Facts{
-		Hostname:     hostname,
-		PublicIP:     publicIP,
-		PrivateIP:    privateIP,
-		OS:           detectOS(),
-		Arch:         runtime.GOARCH,
-		CPUCoreCount: runtime.NumCPU(),
-		MemoryBytes:  detectMemoryBytes(),
-		GPUs:         detectNvidiaGPUs(ctx),
-		Kubernetes:   detectKubernetes(ctx),
-		HAMi:         detectHAMi(ctx),
-		Labels:       map[string]string{},
-		Telemetry:    collectTelemetry(ctx),
+		Hostname:        hostname,
+		PublicIP:        publicIP,
+		PrivateIP:       privateIP,
+		OS:              detectOS(),
+		Arch:            runtime.GOARCH,
+		CPUCoreCount:    runtime.NumCPU(),
+		MemoryBytes:     detectMemoryBytes(),
+		GPUs:            detectNvidiaGPUs(ctx),
+		Kubernetes:      detectKubernetes(ctx),
+		HAMi:            detectHAMi(ctx),
+		Labels:          map[string]string{},
+		Telemetry:       collectTelemetry(ctx),
 		RuntimeStatuses: detectRuntimeStatuses(ctx),
 	}
 	if len(facts.GPUs) > 0 {
@@ -50,22 +52,25 @@ func Discover(ctx context.Context, version string) Facts {
 	return facts
 }
 
-func heartbeatFromFacts(facts Facts, version string) HeartbeatRequest {
+func heartbeatFromFacts(facts Facts, cfg Config) HeartbeatRequest {
 	return HeartbeatRequest{
-		Hostname:     facts.Hostname,
-		PublicIP:     facts.PublicIP,
-		PrivateIP:    facts.PrivateIP,
-		OS:           facts.OS,
-		Arch:         facts.Arch,
-		CPUCoreCount: facts.CPUCoreCount,
-		MemoryBytes:  facts.MemoryBytes,
-		AgentVersion: version,
-		GPUs:         facts.GPUs,
-		Kubernetes:   facts.Kubernetes,
-		HAMi:         facts.HAMi,
-		Labels:       facts.Labels,
-		Telemetry:    facts.Telemetry,
+		TargetKind:      targetKindForMode(cfg.Mode),
+		AgentMode:       normalizedMode(cfg.Mode),
+		Hostname:        facts.Hostname,
+		PublicIP:        facts.PublicIP,
+		PrivateIP:       facts.PrivateIP,
+		OS:              facts.OS,
+		Arch:            facts.Arch,
+		CPUCoreCount:    facts.CPUCoreCount,
+		MemoryBytes:     facts.MemoryBytes,
+		AgentVersion:    cfg.Version,
+		GPUs:            facts.GPUs,
+		Kubernetes:      facts.Kubernetes,
+		HAMi:            facts.HAMi,
+		Labels:          facts.Labels,
+		Telemetry:       facts.Telemetry,
 		RuntimeStatuses: facts.RuntimeStatuses,
+		Capabilities:    capabilitiesForFacts(cfg.Mode, cfg.Workspace, facts),
 	}
 }
 
@@ -75,20 +80,65 @@ func registerFromFacts(facts Facts, cfg Config) RegisterRequest {
 		name = facts.Hostname
 	}
 	return RegisterRequest{
-		BootstrapToken: cfg.BootstrapToken,
-		Name:           name,
-		Hostname:       facts.Hostname,
-		PublicIP:       facts.PublicIP,
-		PrivateIP:      facts.PrivateIP,
-		OS:             facts.OS,
-		Arch:           facts.Arch,
-		CPUCoreCount:   facts.CPUCoreCount,
-		MemoryBytes:    facts.MemoryBytes,
-		AgentVersion:   cfg.Version,
-		GPUs:           facts.GPUs,
-		Kubernetes:     facts.Kubernetes,
-		HAMi:           facts.HAMi,
-		Labels:         facts.Labels,
+		BootstrapToken:  cfg.BootstrapToken,
+		TargetKind:      targetKindForMode(cfg.Mode),
+		AgentMode:       normalizedMode(cfg.Mode),
+		TargetID:        cfg.TargetID,
+		AgentInstanceID: cfg.AgentInstanceID,
+		Name:            name,
+		Hostname:        facts.Hostname,
+		PublicIP:        facts.PublicIP,
+		PrivateIP:       facts.PrivateIP,
+		OS:              facts.OS,
+		Arch:            facts.Arch,
+		CPUCoreCount:    facts.CPUCoreCount,
+		MemoryBytes:     facts.MemoryBytes,
+		AgentVersion:    cfg.Version,
+		GPUs:            facts.GPUs,
+		Kubernetes:      facts.Kubernetes,
+		HAMi:            facts.HAMi,
+		Labels:          facts.Labels,
+		Capabilities:    capabilitiesForFacts(cfg.Mode, cfg.Workspace, facts),
+		Telemetry:       facts.Telemetry,
+	}
+}
+
+func normalizedMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "worker":
+		return "worker"
+	case "cluster":
+		return "cluster"
+	default:
+		return "host"
+	}
+}
+
+func targetKindForMode(mode string) string {
+	switch normalizedMode(mode) {
+	case "worker":
+		return "worker"
+	case "cluster":
+		return "cluster"
+	default:
+		return "node"
+	}
+}
+
+func capabilitiesForFacts(mode string, workspace string, facts Facts) map[string]any {
+	switch normalizedMode(mode) {
+	case "worker":
+		return map[string]any{
+			"process":          map[string]any{"manage": true},
+			"filesystem":       map[string]any{"workspace": true},
+			"http":             map[string]any{"localhostProxy": true},
+			"resourceBoundary": "upstream-allocation",
+			"workspace":        strings.TrimSpace(workspace),
+		}
+	case "cluster":
+		return clusterCapabilities(facts.Kubernetes)
+	default:
+		return map[string]any{"host": map[string]any{"manage": true}}
 	}
 }
 
@@ -290,37 +340,97 @@ func envBool(key string, fallback bool) bool {
 }
 
 func detectNvidiaGPUs(ctx context.Context) []GPUInfo {
-	output, err := runCommand(ctx, "nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits")
+	output, err := runCommand(ctx, "nvidia-smi", "--query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu,temperature.gpu,power.draw,driver_version", "--format=csv,noheader,nounits")
+	if err == nil {
+		return parseNvidiaGPUs(output, detectCudaVersion(ctx))
+	}
+	output, err = runCommand(ctx, "nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits")
 	if err != nil {
 		return nil
 	}
-	counts := map[string]*GPUInfo{}
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		parts := strings.Split(line, ",")
-		if len(parts) < 3 {
+	return parseStaticNvidiaGPUs(output, detectCudaVersion(ctx))
+}
+
+func parseNvidiaGPUs(output string, cudaVersion string) []GPUInfo {
+	reader := csv.NewReader(strings.NewReader(output))
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
+	result := make([]GPUInfo, 0, 8)
+	for len(result) < 32 {
+		parts, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil || len(parts) < 9 {
 			continue
 		}
-		model := strings.TrimSpace(parts[0])
-		memoryMiB, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
-		driver := strings.TrimSpace(parts[2])
-		key := model + "|" + strconv.Itoa(memoryMiB) + "|" + driver
-		if counts[key] == nil {
-			counts[key] = &GPUInfo{
-				Vendor:        "nvidia",
-				Model:         model,
-				Count:         0,
-				MemoryMiB:     memoryMiB,
-				DriverVersion: driver,
-				CUDAVersion:   detectCudaVersion(ctx),
-			}
+		index, indexOK := telemetryInt(parts[0])
+		memoryMiB, _ := telemetryInt(parts[3])
+		memoryUsedMiB, memoryUsedOK := telemetryInt(parts[4])
+		utilization, utilizationOK := telemetryFloat(parts[5])
+		temperature, temperatureOK := telemetryFloat(parts[6])
+		power, powerOK := telemetryFloat(parts[7])
+		gpu := GPUInfo{
+			Vendor:        "nvidia",
+			UUID:          boundedTelemetryString(parts[1], 128),
+			Model:         boundedTelemetryString(parts[2], 256),
+			Count:         1,
+			MemoryMiB:     memoryMiB,
+			DriverVersion: boundedTelemetryString(parts[8], 64),
+			CUDAVersion:   boundedTelemetryString(cudaVersion, 64),
 		}
-		counts[key].Count++
-	}
-	result := make([]GPUInfo, 0, len(counts))
-	for _, gpu := range counts {
-		result = append(result, *gpu)
+		if indexOK {
+			gpu.Index = &index
+		}
+		if memoryUsedOK {
+			gpu.MemoryUsedMiB = &memoryUsedMiB
+		}
+		if utilizationOK {
+			value := roundPercent(utilization)
+			gpu.UtilizationPercent = &value
+		}
+		if temperatureOK {
+			gpu.TemperatureC = &temperature
+		}
+		if powerOK {
+			gpu.PowerWatts = &power
+		}
+		result = append(result, gpu)
 	}
 	return result
+}
+
+func parseStaticNvidiaGPUs(output string, cudaVersion string) []GPUInfo {
+	reader := csv.NewReader(strings.NewReader(output))
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
+	result := make([]GPUInfo, 0, 8)
+	for len(result) < 32 {
+		parts, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil || len(parts) < 3 {
+			continue
+		}
+		memoryMiB, _ := telemetryInt(parts[1])
+		result = append(result, GPUInfo{
+			Vendor: "nvidia", Model: boundedTelemetryString(parts[0], 256), Count: 1,
+			MemoryMiB: memoryMiB, DriverVersion: boundedTelemetryString(parts[2], 64),
+			CUDAVersion: boundedTelemetryString(cudaVersion, 64),
+		})
+	}
+	return result
+}
+
+func telemetryInt(value string) (int, bool) {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	return parsed, err == nil && parsed >= 0
+}
+
+func telemetryFloat(value string) (float64, bool) {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	return parsed, err == nil && parsed >= 0
 }
 
 func detectCudaVersion(ctx context.Context) string {
@@ -353,15 +463,15 @@ func detectKubernetes(ctx context.Context) map[string]any {
 			result["distributionVersion"] = strings.TrimSpace(output)
 		}
 	}
-	if _, err := exec.LookPath("kubectl"); err == nil {
+	if len(resolveKubectlCommand()) > 0 {
 		result["kubectl"] = true
-		if output, err := runCommand(ctx, "kubectl", "version", "-o", "json"); err == nil {
+		if output, err := runKubernetesCommand(ctx, "version", "-o", "json"); err == nil {
 			if version := parseKubectlServerVersion(output); version != "" {
 				result["version"] = version
 			}
 		}
 	}
-	if output, err := runCommand(ctx, "kubectl", "get", "node", "-o", "jsonpath={.items[0].metadata.name}"); err == nil && strings.TrimSpace(output) != "" {
+	if output, err := runKubernetesCommand(ctx, "get", "node", "-o", "jsonpath={.items[0].metadata.name}"); err == nil && strings.TrimSpace(output) != "" {
 		result["ready"] = true
 		result["nodeName"] = strings.TrimSpace(output)
 	}
@@ -393,13 +503,24 @@ func detectHAMi(ctx context.Context) map[string]any {
 		"nodeLabeled":       false,
 		"devicePluginReady": false,
 	}
-	if output, err := runCommand(ctx, "kubectl", "get", "nodes", "-l", "gpu=on", "-o", "name"); err == nil && strings.TrimSpace(output) != "" {
+	if output, err := runKubernetesCommand(ctx, "get", "nodes", "-l", "gpu=on", "-o", "name"); err == nil && strings.TrimSpace(output) != "" {
 		result["nodeLabeled"] = true
 	}
-	if output, err := runCommand(ctx, "kubectl", "get", "daemonset", "-n", "kube-system", "-o", "name"); err == nil && strings.Contains(strings.ToLower(output), "hami") {
+	if output, err := runKubernetesCommand(ctx, "get", "daemonset", "-n", "kube-system", "-o", "name"); err == nil && strings.Contains(strings.ToLower(output), "hami") {
 		result["devicePluginReady"] = true
 	}
 	return result
+}
+
+func runKubernetesCommand(ctx context.Context, args ...string) (string, error) {
+	command := resolveKubectlCommand()
+	if len(command) == 0 {
+		return "", fmt.Errorf("kubectl or k3s is not installed")
+	}
+	command = append(command, args...)
+	commandCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return runCommandWithEnv(commandCtx, hostKubernetesEnvironment(command), command...)
 }
 
 func runCommand(ctx context.Context, name string, args ...string) (string, error) {
