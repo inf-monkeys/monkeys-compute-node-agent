@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,27 @@ import (
 	"strings"
 	"time"
 )
+
+type requestIdentityKey struct{}
+
+type requestIdentity struct {
+	RequestID string
+	RunKind   string
+	RunID     string
+	TaskID    string
+}
+
+func withRequestIdentity(ctx context.Context, identity requestIdentity) context.Context {
+	return context.WithValue(ctx, requestIdentityKey{}, identity)
+}
+
+func randomRequestID() string {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return fmt.Sprintf("compute-agent-%d", time.Now().UnixNano())
+	}
+	return "compute-agent-" + hex.EncodeToString(value)
+}
 
 type client struct {
 	baseURL    string
@@ -63,11 +86,13 @@ func (c *client) plan(ctx context.Context, token string) (Plan, error) {
 }
 
 func (c *client) event(ctx context.Context, token string, planID string, request EventRequest) error {
+	ctx = withRequestIdentity(ctx, requestIdentity{RequestID: "compute-plan:" + planID + ":event", RunKind: "compute-plan", RunID: planID})
 	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/plan/"+planID+"/events", token, request)
 	return err
 }
 
 func (c *client) complete(ctx context.Context, token string, planID string, payload map[string]any) error {
+	ctx = withRequestIdentity(ctx, requestIdentity{RequestID: "compute-plan:" + planID + ":complete", RunKind: "compute-plan", RunID: planID})
 	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/plan/"+planID+"/complete", token, payload)
 	return err
 }
@@ -80,16 +105,19 @@ func (c *client) claimTasks(ctx context.Context, token string, limit int, leaseS
 }
 
 func (c *client) taskHeartbeat(ctx context.Context, token string, taskID string, request TaskLeaseRequest) error {
+	ctx = withRequestIdentity(ctx, requestIdentity{RequestID: "compute-task:" + taskID + ":heartbeat", RunKind: "compute-task", RunID: taskID, TaskID: taskID})
 	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/heartbeat", token, request)
 	return err
 }
 
 func (c *client) completeTask(ctx context.Context, token string, taskID string, request CompleteTaskRequest) error {
+	ctx = withRequestIdentity(ctx, requestIdentity{RequestID: "compute-task:" + taskID + ":complete", RunKind: "compute-task", RunID: taskID, TaskID: taskID})
 	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/complete", token, request)
 	return err
 }
 
 func (c *client) failTask(ctx context.Context, token string, taskID string, request FailTaskRequest) error {
+	ctx = withRequestIdentity(ctx, requestIdentity{RequestID: "compute-task:" + taskID + ":fail", RunKind: "compute-task", RunID: taskID, TaskID: taskID})
 	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/fail", token, request)
 	return err
 }
@@ -109,6 +137,27 @@ func doJSON[T any](ctx context.Context, c *client, method string, path string, t
 		return zero, err
 	}
 	req.Header.Set("Accept", "application/json")
+	identity, _ := ctx.Value(requestIdentityKey{}).(requestIdentity)
+	if identity.RequestID == "" {
+		identity.RequestID = randomRequestID()
+	}
+	req.Header.Set("x-request-id", identity.RequestID)
+	req.Header.Set("x-trace-id", identity.RequestID)
+	if identity.RunID != "" {
+		link := map[string]any{
+			"contract":  "ExecutionLink",
+			"requestId": identity.RequestID,
+			"runRef":    map[string]string{"kind": identity.RunKind, "id": identity.RunID, "ownerRepo": "monkeys-server"},
+		}
+		if identity.TaskID != "" {
+			link["taskRef"] = map[string]string{"kind": "compute-task", "id": identity.TaskID, "ownerRepo": "monkeys-server"}
+		}
+		encoded, marshalErr := json.Marshal(link)
+		if marshalErr != nil {
+			return zero, marshalErr
+		}
+		req.Header.Set("x-monkeys-execution-link", string(encoded))
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
