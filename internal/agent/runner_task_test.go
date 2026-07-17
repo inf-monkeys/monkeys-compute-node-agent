@@ -150,6 +150,9 @@ func TestFailedTaskAcknowledgementIncludesExplicitRetryability(t *testing.T) {
 
 func TestRunAgentLoopsPollsTasksWhileHeartbeatIsBlocked(t *testing.T) {
 	t.Setenv("MONKEYS_DISCOVER_PUBLIC_IP", "false")
+	originalDiscover := discoverHeartbeatFacts
+	discoverHeartbeatFacts = func(context.Context, Config) Facts { return Facts{Labels: map[string]string{}} }
+	t.Cleanup(func() { discoverHeartbeatFacts = originalDiscover })
 	heartbeatStarted := make(chan struct{})
 	heartbeatRelease := make(chan struct{})
 	taskPolled := make(chan struct{}, 1)

@@ -80,8 +80,10 @@ func Run(ctx context.Context, cfg Config) error {
 	return runAgentLoops(ctx, c, cfg, token, defaultTaskPollPeriod)
 }
 
+var discoverHeartbeatFacts = discoverForMode
+
 func heartbeatAndPlan(ctx context.Context, c *client, cfg Config, token string) error {
-	facts := discoverForMode(ctx, cfg)
+	facts := discoverHeartbeatFacts(ctx, cfg)
 	heartbeat, err := c.heartbeat(ctx, token, heartbeatFromFacts(facts, cfg))
 	if err != nil {
 		return err
