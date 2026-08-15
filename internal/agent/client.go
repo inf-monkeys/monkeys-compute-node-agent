@@ -72,9 +72,9 @@ func (c *client) complete(ctx context.Context, token string, planID string, payl
 	return err
 }
 
-func (c *client) claimTasks(ctx context.Context, token string, limit int, leaseSeconds int) (ClaimTasksResult, error) {
+func (c *client) claimTasks(ctx context.Context, token string, batchSize int, leaseSeconds int) (ClaimTasksResult, error) {
 	return doJSON[ClaimTasksResult](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/claim", token, map[string]int{
-		"limit":        limit,
+		"batchSize":    batchSize,
 		"leaseSeconds": leaseSeconds,
 	})
 }

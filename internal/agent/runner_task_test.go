@@ -149,7 +149,6 @@ func TestFailedTaskAcknowledgementIncludesExplicitRetryability(t *testing.T) {
 }
 
 func TestRunAgentLoopsPollsTasksWhileHeartbeatIsBlocked(t *testing.T) {
-	t.Setenv("MONKEYS_DISCOVER_PUBLIC_IP", "false")
 	heartbeatStarted := make(chan struct{})
 	heartbeatRelease := make(chan struct{})
 	taskPolled := make(chan struct{}, 1)
@@ -174,9 +173,20 @@ func TestRunAgentLoopsPollsTasksWhileHeartbeatIsBlocked(t *testing.T) {
 	defer server.Close()
 	c, _ := newClient(server.URL)
 	ctx, cancel := context.WithCancel(context.Background())
+	facts := Facts{Hostname: "test-worker", OS: "test", Arch: "test", Labels: map[string]string{}}
 	done := make(chan error, 1)
 	go func() {
-		done <- runAgentLoops(ctx, c, Config{Mode: "worker", Workspace: t.TempDir(), Interval: time.Hour}, "token", 10*time.Millisecond)
+		done <- runAgentLoopsWithHeartbeat(
+			ctx,
+			c,
+			Config{Mode: "worker", Workspace: t.TempDir(), Interval: time.Hour},
+			"token",
+			10*time.Millisecond,
+			func() error {
+				_, err := c.heartbeat(ctx, "token", heartbeatFromFacts(facts, Config{Mode: "worker"}))
+				return err
+			},
+		)
 	}()
 	select {
 	case <-heartbeatStarted:

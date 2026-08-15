@@ -93,6 +93,12 @@ func heartbeatAndPlan(ctx context.Context, c *client, cfg Config, token string) 
 }
 
 func runAgentLoops(ctx context.Context, c *client, cfg Config, token string, taskPollPeriod time.Duration) error {
+	return runAgentLoopsWithHeartbeat(ctx, c, cfg, token, taskPollPeriod, func() error {
+		return heartbeatAndPlan(ctx, c, cfg, token)
+	})
+}
+
+func runAgentLoopsWithHeartbeat(ctx context.Context, c *client, cfg Config, token string, taskPollPeriod time.Duration, heartbeat func() error) error {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 30 * time.Second
 	}
@@ -104,7 +110,7 @@ func runAgentLoops(ctx context.Context, c *client, cfg Config, token string, tas
 	go func() {
 		defer workers.Done()
 		runPeriodic(ctx, cfg.Interval, func() {
-			if err := heartbeatAndPlan(ctx, c, cfg, token); err != nil && ctx.Err() == nil {
+			if err := heartbeat(); err != nil && ctx.Err() == nil {
 				log.Printf("heartbeat failed: %v", err)
 			}
 		})
