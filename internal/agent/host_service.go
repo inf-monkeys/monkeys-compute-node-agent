@@ -12,7 +12,7 @@ import (
 const (
 	maxSystemdServiceUnitLength = 128
 	maxSystemctlOutputBytes     = 8 * 1024
-	computeNodeAgentSystemdUnit = "monkeys-compute-node-agent.service"
+	kernelNodeAgentSystemdUnit  = "monkeys-compute-node-agent.service"
 )
 
 var (
@@ -43,7 +43,7 @@ func executeHostServiceAction(ctx context.Context, cfg Config, action PlanAction
 	if normalizedMode(cfg.Mode) != "host" {
 		return ActionResult{ActionType: action.Type, Success: false, Message: "Host service actions require host Agent mode."}
 	}
-	if unit == computeNodeAgentSystemdUnit && (operation == "stop" || operation == "restart" || operation == "disable") {
+	if unit == kernelNodeAgentSystemdUnit && (operation == "stop" || operation == "restart" || operation == "disable") {
 		return ActionResult{
 			ActionType: action.Type,
 			Success:    false,

@@ -10,7 +10,7 @@ func TestSaveAndLoadState(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
 	want := State{
-		ServerURL:  "https://compute.example.com",
+		ServerURL:  "https://kernel.example.com",
 		NodeID:     "node-1",
 		NodeName:   "gpu-01",
 		AgentToken: "mnag_xxx",

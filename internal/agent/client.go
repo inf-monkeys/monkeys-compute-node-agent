@@ -51,46 +51,46 @@ func newClient(serverURL string) (*client, error) {
 }
 
 func (c *client) register(ctx context.Context, request RegisterRequest) (RegisterResult, error) {
-	return doJSON[RegisterResult](ctx, c, http.MethodPost, "/api/compute/node-agent/register", "", request)
+	return doJSON[RegisterResult](ctx, c, http.MethodPost, "/api/kernel/node-agent/register", "", request)
 }
 
 func (c *client) heartbeat(ctx context.Context, token string, request HeartbeatRequest) (HeartbeatResult, error) {
-	return doJSON[HeartbeatResult](ctx, c, http.MethodPost, "/api/compute/node-agent/heartbeat", token, request)
+	return doJSON[HeartbeatResult](ctx, c, http.MethodPost, "/api/kernel/node-agent/heartbeat", token, request)
 }
 
 func (c *client) plan(ctx context.Context, token string) (Plan, error) {
-	return doJSON[Plan](ctx, c, http.MethodGet, "/api/compute/node-agent/plan", token, nil)
+	return doJSON[Plan](ctx, c, http.MethodGet, "/api/kernel/node-agent/plan", token, nil)
 }
 
 func (c *client) event(ctx context.Context, token string, planID string, request EventRequest) error {
-	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/plan/"+planID+"/events", token, request)
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/kernel/node-agent/plan/"+planID+"/events", token, request)
 	return err
 }
 
 func (c *client) complete(ctx context.Context, token string, planID string, payload map[string]any) error {
-	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/plan/"+planID+"/complete", token, payload)
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/kernel/node-agent/plan/"+planID+"/complete", token, payload)
 	return err
 }
 
 func (c *client) claimTasks(ctx context.Context, token string, batchSize int, leaseSeconds int) (ClaimTasksResult, error) {
-	return doJSON[ClaimTasksResult](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/claim", token, map[string]int{
+	return doJSON[ClaimTasksResult](ctx, c, http.MethodPost, "/api/kernel/node-agent/tasks/claim", token, map[string]int{
 		"batchSize":    batchSize,
 		"leaseSeconds": leaseSeconds,
 	})
 }
 
 func (c *client) taskHeartbeat(ctx context.Context, token string, taskID string, request TaskLeaseRequest) error {
-	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/heartbeat", token, request)
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/kernel/node-agent/tasks/"+taskID+"/heartbeat", token, request)
 	return err
 }
 
 func (c *client) completeTask(ctx context.Context, token string, taskID string, request CompleteTaskRequest) error {
-	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/complete", token, request)
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/kernel/node-agent/tasks/"+taskID+"/complete", token, request)
 	return err
 }
 
 func (c *client) failTask(ctx context.Context, token string, taskID string, request FailTaskRequest) error {
-	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/compute/node-agent/tasks/"+taskID+"/fail", token, request)
+	_, err := doJSON[map[string]any](ctx, c, http.MethodPost, "/api/kernel/node-agent/tasks/"+taskID+"/fail", token, request)
 	return err
 }
 

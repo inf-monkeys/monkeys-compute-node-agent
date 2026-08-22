@@ -519,7 +519,7 @@ func buildK3sJoinAgentCommand(payload map[string]any) []string {
 		}
 	}
 
-	serverURL := firstNonEmpty(config["serverUrl"], config["url"], "<compute-server-url>")
+	serverURL := firstNonEmpty(config["serverUrl"], config["url"], "<kernel-server-url>")
 	token := firstNonEmpty(config["token"], config["k3sToken"], "<k3s-token>")
 	script := fmt.Sprintf(
 		"curl -sfL https://get.k3s.io | K3S_URL=%s K3S_TOKEN=%s sh -s - %s",
@@ -533,7 +533,7 @@ func buildK3sJoinAgentCommand(payload map[string]any) []string {
 func buildHamiInstallCommand(payload map[string]any) []string {
 	config := normalizeActionConfig(payload)
 	release := firstNonEmpty(config["release"], config["version"], "v2.6.0")
-	host := firstNonEmpty(config["serverUrl"], "<compute-server-url>")
+	host := firstNonEmpty(config["serverUrl"], "<kernel-server-url>")
 	schedulerName := firstNonEmpty(config["schedulerName"], "hami-scheduler")
 	resourceGpu := firstNonEmpty(config["resourceGpu"], "nvidia.com/gpu")
 	resourceGpuMem := firstNonEmpty(config["resourceGpuMem"], "nvidia.com/gpumem")

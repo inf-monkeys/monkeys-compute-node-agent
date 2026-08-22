@@ -115,7 +115,7 @@ install_system_service() {
   service_file="$tmp_dir/$SERVICE_NAME.service"
   cat > "$service_file" <<EOF
 [Unit]
-Description=Monkeys Compute Agent (${MODE})
+Description=Monkeys Kernel Runtime Agent (${MODE})
 After=network-online.target
 Wants=network-online.target
 
@@ -143,7 +143,7 @@ install_user_service() {
   service_file="$tmp_dir/$SERVICE_NAME.service"
   cat > "$service_file" <<EOF
 [Unit]
-Description=Monkeys Compute Agent (${MODE})
+Description=Monkeys Kernel Runtime Agent (${MODE})
 After=network-online.target
 Wants=network-online.target
 
@@ -268,7 +268,7 @@ chmod 0700 "$WORKSPACE_DIR"
 install_file "$binary_path" "$INSTALL_DIR/$SERVICE_NAME" 0755
 write_env_file "$CONFIG_DIR/agent.env"
 
-echo "registering $MODE target with the compute control plane..."
+echo "registering $MODE target with the Kernel runtime control plane..."
 "$INSTALL_DIR/$SERVICE_NAME" register \
   --mode "$MODE" \
   --server "$MONKEYS_SERVER" \

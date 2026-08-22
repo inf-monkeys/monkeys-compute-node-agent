@@ -41,13 +41,13 @@ func Discover(ctx context.Context, version string) Facts {
 		facts.Labels["gpu"] = "on"
 	}
 	if version != "" {
-		facts.Labels["monkeys.compute.agent/version"] = version
+		facts.Labels["kernel.runtime.monkeys.ai/version"] = version
 	}
 	if privateIP != "" {
-		facts.Labels["monkeys.compute.agent/private-ip"] = privateIP
+		facts.Labels["kernel.runtime.monkeys.ai/private-ip"] = privateIP
 	}
 	if publicIP != "" {
-		facts.Labels["monkeys.compute.agent/public-ip"] = publicIP
+		facts.Labels["kernel.runtime.monkeys.ai/public-ip"] = publicIP
 	}
 	return facts
 }
