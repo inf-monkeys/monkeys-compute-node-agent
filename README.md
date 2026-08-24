@@ -1,6 +1,6 @@
-# Monkeys Compute Agent
+# Monkeys Kernel Runtime Agent
 
-`monkeys-compute-node-agent` is the single Linux Agent used by Monkeys Compute. One binary runs in three deliberately different trust and resource boundaries:
+`monkeys-compute-node-agent` is the single Linux Agent used by Monkeys Kernel Runtime. One binary runs in three deliberately different trust and resource boundaries:
 
 | Mode | Runs on | Control boundary |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ make container-build
 make container-test
 ```
 
-The image health check verifies that the Agent binary remains executable. Compute heartbeats are the authoritative connectivity/readiness signal; a local process health check cannot prove that the control plane or Kubernetes API is reachable.
+The image health check verifies that the Agent binary remains executable. Kernel runtime heartbeats are the authoritative connectivity/readiness signal; a local process health check cannot prove that the control plane or Kubernetes API is reachable.
 
 ## Register Then Run
 
@@ -67,7 +67,7 @@ Host and Worker installations normally use a bootstrap token:
 ```bash
 monkeys-compute-node-agent register \
   --mode worker \
-  --server https://compute.example.com \
+  --server https://kernel.example.com \
   --bootstrap-token mnbt_xxx \
   --target-id optional-precreated-target-id \
   --state "$HOME/.local/state/monkeys-compute-node-agent/agent-state.json" \
@@ -75,7 +75,7 @@ monkeys-compute-node-agent register \
 
 monkeys-compute-node-agent run \
   --mode worker \
-  --server https://compute.example.com \
+  --server https://kernel.example.com \
   --state "$HOME/.local/state/monkeys-compute-node-agent/agent-state.json"
 ```
 
@@ -85,24 +85,24 @@ A Cluster pod can run without persistent state when the control plane supplies i
 MONKEYS_AGENT_TOKEN=mnat_xxx \
 monkeys-compute-node-agent run \
   --mode cluster \
-  --server https://compute.example.com \
+  --server https://kernel.example.com \
   --target-id cluster-target-id \
   --state /tmp/agent-state.json \
-  --workspace /tmp/monkeys-compute-agent
+  --workspace /tmp/monkeys-kernel-agent
 ```
 
 `once` accepts the same connection flags and performs one heartbeat/task cycle.
 
 ## Install Script
 
-The canonical script is `scripts/install.sh`; releases also include it as `dist/install.sh`. Compute Server exposes a small tenant-local bootstrap script at `/compute-agent/install.sh`. That bootstrap validates its inputs, downloads this canonical installer and `SHA256SUMS` from the Agent release repository, verifies the installer, and then runs it. Server does not store or proxy Agent binaries.
+The canonical script is `scripts/install.sh`; releases also include it as `dist/install.sh`. Kernel Server exposes a small tenant-local bootstrap script at `/kernel-agent/install.sh`. That bootstrap validates its inputs, downloads this canonical installer and `SHA256SUMS` from the Agent release repository, verifies the installer, and then runs it. Server does not store or proxy Agent binaries.
 
 ### Dedicated Host
 
 Host mode deliberately requires root because a non-root process cannot honestly provide host control. Run as root to install `/usr/local/bin/monkeys-compute-node-agent`, register the host, and enable a system service:
 
 ```bash
-curl -fsSL "$MONKEYS_SERVER/compute-agent/install.sh" | \
+curl -fsSL "$MONKEYS_SERVER/kernel-agent/install.sh" | \
   MONKEYS_SERVER="$MONKEYS_SERVER" \
   MONKEYS_BOOTSTRAP_TOKEN="$MONKEYS_BOOTSTRAP_TOKEN" \
   MONKEYS_AGENT_MODE=host \
@@ -118,7 +118,7 @@ Use `sudo -E sh -` only when your sudo policy explicitly preserves the required 
 Without root, the installer uses `$HOME/.local/bin`, XDG config/state paths, and user systemd when available. Minimal containers fall back to a verified `nohup` process:
 
 ```bash
-curl -fsSL "$MONKEYS_SERVER/compute-agent/install.sh" | \
+curl -fsSL "$MONKEYS_SERVER/kernel-agent/install.sh" | \
   MONKEYS_SERVER="$MONKEYS_SERVER" \
   MONKEYS_BOOTSTRAP_TOKEN="$MONKEYS_BOOTSTRAP_TOKEN" \
   MONKEYS_AGENT_MODE=worker \

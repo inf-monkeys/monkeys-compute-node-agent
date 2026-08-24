@@ -147,7 +147,7 @@ func TestHostServiceRejectsSynchronousSelfTermination(t *testing.T) {
 	for _, actionType := range []string{"host.service.stop", "host.service.restart", "host.service.disable"} {
 		result := executeAction(t.Context(), Config{Mode: "host", AllowInstall: true}, PlanAction{
 			Type:    actionType,
-			Payload: map[string]any{"unit": computeNodeAgentSystemdUnit},
+			Payload: map[string]any{"unit": kernelNodeAgentSystemdUnit},
 		})
 		if result.Success || !strings.Contains(result.Message, "Agent lifecycle workflow") {
 			t.Fatalf("expected %s to reject self-termination, got: %+v", actionType, result)
@@ -158,7 +158,7 @@ func TestHostServiceRejectsSynchronousSelfTermination(t *testing.T) {
 	})
 	inspect := executeAction(t.Context(), Config{Mode: "host"}, PlanAction{
 		Type:    "host.service.inspect",
-		Payload: map[string]any{"unit": computeNodeAgentSystemdUnit},
+		Payload: map[string]any{"unit": kernelNodeAgentSystemdUnit},
 	})
 	if !inspect.Success {
 		t.Fatalf("self inspection must remain available: %+v", inspect)

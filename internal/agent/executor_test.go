@@ -103,7 +103,7 @@ func TestExecuteActionRejectsUnsafeK3sExtraArgsBeforeExecution(t *testing.T) {
 func TestExecuteActionPlansAgentUpdateWithoutAllowFlag(t *testing.T) {
 	cfg := Config{ServerURL: "http://control-plane.local", DryRun: true}
 	result := executeAction(t.Context(), cfg, PlanAction{Type: "agent.update", Payload: map[string]any{
-		"releaseBaseUrl": "https://agents.example.test/compute-agent/releases",
+		"releaseBaseUrl": "https://agents.example.test/kernel-agent/releases",
 		"version":        "v1.2.3",
 	}})
 	if !result.Success || !result.Planned || !result.DryRun {
@@ -114,8 +114,8 @@ func TestExecuteActionPlansAgentUpdateWithoutAllowFlag(t *testing.T) {
 	}
 	command := result.Command[2]
 	for _, expected := range []string{
-		"https://agents.example.test/compute-agent/releases/download/v1.2.3/monkeys-compute-node-agent_linux_",
-		"https://agents.example.test/compute-agent/releases/download/v1.2.3/SHA256SUMS",
+		"https://agents.example.test/kernel-agent/releases/download/v1.2.3/monkeys-compute-node-agent_linux_",
+		"https://agents.example.test/kernel-agent/releases/download/v1.2.3/SHA256SUMS",
 		"sha256sum -c -",
 		"install -m 0755",
 		"systemctl restart",

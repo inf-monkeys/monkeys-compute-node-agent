@@ -17,7 +17,7 @@ func TestExecuteClaimedTaskReusesCachedResultWithoutReexecution(t *testing.T) {
 	completions := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		mutex.Lock()
-		if request.URL.Path == "/api/compute/node-agent/tasks/task-1/complete" {
+		if request.URL.Path == "/api/kernel/node-agent/tasks/task-1/complete" {
 			completions++
 		}
 		mutex.Unlock()
@@ -88,9 +88,9 @@ func TestExecuteClaimedTaskReexecutesCachedRetryableFailure(t *testing.T) {
 	failed := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
-		case "/api/compute/node-agent/tasks/task-retry/complete":
+		case "/api/kernel/node-agent/tasks/task-retry/complete":
 			completed++
-		case "/api/compute/node-agent/tasks/task-retry/fail":
+		case "/api/kernel/node-agent/tasks/task-retry/fail":
 			failed++
 		}
 		writer.Header().Set("Content-Type", "application/json")
@@ -156,11 +156,11 @@ func TestRunAgentLoopsPollsTasksWhileHeartbeatIsBlocked(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
-		case "/api/compute/node-agent/heartbeat":
+		case "/api/kernel/node-agent/heartbeat":
 			heartbeatOnce.Do(func() { close(heartbeatStarted) })
 			<-heartbeatRelease
 			_, _ = writer.Write([]byte(`{"code":0,"msg":"ok","data":{"plan":{}}}`))
-		case "/api/compute/node-agent/tasks/claim":
+		case "/api/kernel/node-agent/tasks/claim":
 			select {
 			case taskPolled <- struct{}{}:
 			default:

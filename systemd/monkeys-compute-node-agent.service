@@ -1,5 +1,5 @@
 [Unit]
-Description=Monkeys Compute Node Agent
+Description=Monkeys Kernel Runtime Node Agent
 Documentation=https://github.com/inf-monkeys/monkeys-compute-node-agent
 After=network-online.target
 Wants=network-online.target

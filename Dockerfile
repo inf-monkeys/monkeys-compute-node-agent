@@ -33,17 +33,17 @@ RUN apk add --no-cache ca-certificates wget \
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
 ARG KUBECTL_VERSION
-LABEL org.opencontainers.image.title="Monkeys Compute Agent" \
-      org.opencontainers.image.description="Monkeys Compute Cluster Agent" \
+LABEL org.opencontainers.image.title="Monkeys Kernel Runtime Agent" \
+      org.opencontainers.image.description="Monkeys Kernel Runtime Cluster Agent" \
       org.opencontainers.image.source="https://github.com/inf-monkeys/monkeys-compute-node-agent" \
       org.opencontainers.image.version="${VERSION}" \
-      io.monkeys.compute.kubectl.version="${KUBECTL_VERSION}"
+      io.monkeys.kernel.runtime.kubectl.version="${KUBECTL_VERSION}"
 COPY --from=kubectl-download /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=kubectl-download /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=agent-build /out/monkeys-compute-node-agent /usr/local/bin/monkeys-compute-node-agent
 USER 65532:65532
 WORKDIR /tmp
 ENTRYPOINT ["/usr/local/bin/monkeys-compute-node-agent"]
-CMD ["run", "--mode", "cluster", "--state", "/tmp/agent-state.json", "--workspace", "/tmp/monkeys-compute-agent"]
+CMD ["run", "--mode", "cluster", "--state", "/tmp/agent-state.json", "--workspace", "/tmp/monkeys-kernel-agent"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD ["/usr/local/bin/monkeys-compute-node-agent", "version"]

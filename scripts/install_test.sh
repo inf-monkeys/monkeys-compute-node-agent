@@ -53,7 +53,7 @@ home_dir="$tmp_dir/home"
 mkdir -p "$home_dir"
 HOME="$home_dir" \
 PATH="$fake_bin:$PATH" \
-MONKEYS_SERVER="https://compute.example.test" \
+MONKEYS_SERVER="https://kernel.example.test" \
 MONKEYS_BOOTSTRAP_TOKEN="bootstrap-secret" \
 MONKEYS_AGENT_MODE="worker" \
 MONKEYS_AGENT_BINARY="$fake_agent" \
@@ -90,7 +90,7 @@ fi
 printf '%s  %s\n' "$distribution_checksum" monkeys-compute-node-agent_linux_amd64 > "$distribution_dir/SHA256SUMS"
 HOME="$home_dir" \
 PATH="$fake_bin:$PATH" \
-MONKEYS_SERVER="https://compute.example.test" \
+MONKEYS_SERVER="https://kernel.example.test" \
 MONKEYS_BOOTSTRAP_TOKEN="bootstrap-secret" \
 MONKEYS_AGENT_MODE="worker" \
 MONKEYS_AGENT_DISTRIBUTION_BASE_URL="file://$distribution_dir" \
@@ -105,7 +105,7 @@ sh "$installer" > "$tmp_dir/distribution-output"
 bad_output="$tmp_dir/bad-output"
 if HOME="$home_dir" \
   PATH="$fake_bin:$PATH" \
-  MONKEYS_SERVER="https://compute.example.test" \
+  MONKEYS_SERVER="https://kernel.example.test" \
   MONKEYS_BOOTSTRAP_TOKEN="bootstrap-secret" \
   MONKEYS_AGENT_MODE="invalid" \
   MONKEYS_AGENT_BINARY="$fake_agent" \
